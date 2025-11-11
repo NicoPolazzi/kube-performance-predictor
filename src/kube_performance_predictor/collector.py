@@ -10,3 +10,14 @@ def get_average_response_time(service_name: str) -> float:
 
     value_str = data[0]["value"][1]
     return float(value_str)
+
+
+def get_throughtput(service_name: str) -> float:
+    prom = PrometheusConnect("http://localhost:9090")
+
+    data = prom.custom_query(
+        query=f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}"}}[5m]))'
+    )
+
+    value_str = data[0]["value"][1]
+    return float(value_str)
