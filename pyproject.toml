@@ -18,3 +18,19 @@ packages = [{include = "kube_performance_predictor", from = "src"}]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "ruff (>=0.14.4,<0.15.0)",
+    "pytest (>=9.0.0,<10.0.0)",
+    "pytest-mock (>=3.15.1,<4.0.0)"
+]
+
+[tool.mypy]
+mypy_path = "src"
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
