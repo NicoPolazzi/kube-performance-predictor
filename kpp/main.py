@@ -1,7 +1,19 @@
-from collector import Provider
 import logging
 
+from dataclasses import dataclass
+
+from collector import Provider
+from pod_info_extractor import get_services_names
+
 PROMETHEUS_SERVER_URL = "http://localhost:9090"
+
+
+@dataclass
+class PerformanceSample:
+    service_name: str
+    response_time: float
+    throughput: float
+    cpu_usage: float
 
 
 def main():
@@ -10,10 +22,16 @@ def main():
     logger.setLevel(logging.INFO)
 
     provider = Provider(PROMETHEUS_SERVER_URL)
+    service_names = get_services_names()
 
-    logger.info("ART: %f", provider.get_average_response_time("frontend"))
-    logger.info("throughput: %f", provider.get_throughtput("frontend"))
-    logger.info("CPU usage: %f", provider.get_cpu_usage("frontend"))
+    for serive_name in service_names:
+        sample = PerformanceSample(
+            service_name=serive_name,
+            response_time=provider.get_average_response_time(serive_name),
+            throughput=provider.get_throughtput(serive_name),
+            cpu_usage=provider.get_cpu_usage(serive_name),
+        )
+        logger.info(sample)
 
 
 if __name__ == "__main__":

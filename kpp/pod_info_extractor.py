@@ -1,11 +1,11 @@
 from kubernetes import client, config
 
 
-def get_services_list() -> set[str]:
+def get_services_names() -> set[str]:
     """
     Connects to Kubernetes and retrieves a set of services' names.
 
-    We assume that all the services reside in the default namespace and have an app label.
+    We assume that all target services reside in the default namespace and have an app label.
     """
     config.load_kube_config()
     api_instance = client.CoreV1Api()
