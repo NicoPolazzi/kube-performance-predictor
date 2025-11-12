@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.mypy]
-mypy_path = "src"
+mypy_path = "kpp"
 check_untyped_defs = true
 
 [tool.pytest.ini_options]
