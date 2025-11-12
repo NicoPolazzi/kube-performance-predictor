@@ -1,5 +1,6 @@
 import math
 from typing import Any
+
 from prometheus_api_client import PrometheusConnect
 
 

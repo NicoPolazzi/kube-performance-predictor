@@ -8,7 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "prometheus-api-client (>=0.6.0,<0.7.0)"
+    "prometheus-api-client (>=0.6.0,<0.7.0)",
+    "kubernetes (>=34.1.0,<35.0.0)"
 ]
 
 [tool.poetry]
@@ -29,6 +30,7 @@ dev = [
 [tool.mypy]
 mypy_path = "kpp"
 check_untyped_defs = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = [
