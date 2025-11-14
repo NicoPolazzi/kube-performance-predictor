@@ -7,7 +7,7 @@ from prometheus_api_client import PrometheusConnect
 VALUE_KEY = "value"
 
 
-class Provider:
+class PrometheusClient:
     """The idea here is to create an adapter for the external dependency."""
 
     prom: PrometheusConnect

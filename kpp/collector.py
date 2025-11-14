@@ -3,10 +3,14 @@ import time
 
 from dataclasses import dataclass
 
-from kpp.prometheus_client import Provider
-from kpp.kubernetes_client import get_services_names
+from prometheus_client import PrometheusClient
+from kubernetes_client import KubernetesClient
 
-PROMETHEUS_SERVER_URL = "http://localhost:9090"
+PROMETHEUS_URL = "http://localhost:9090"
+DEPLOYMENT_NAME = "loadgenerator"
+NAMESPACE = "default"
+TEST_DURATION_SECONDS = 300
+USER_COUNTS_TO_TEST = [10]  # TODO: test with different loads
 
 
 @dataclass
@@ -22,8 +26,10 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    provider = Provider(PROMETHEUS_SERVER_URL)
-    service_names = get_services_names()
+    prom_client = PrometheusClient(PROMETHEUS_URL)
+    kube_client = KubernetesClient()
+
+    service_names = kube_client.get_services_names()
 
     time_interval = 15
 
@@ -32,9 +38,9 @@ def main():
             for serive_name in service_names:
                 sample = PerformanceSample(
                     service_name=serive_name,
-                    response_time=provider.get_average_response_time(serive_name),
-                    throughput=provider.get_throughtput(serive_name),
-                    cpu_usage=provider.get_cpu_usage(serive_name),
+                    response_time=prom_client.get_average_response_time(serive_name),
+                    throughput=prom_client.get_throughtput(serive_name),
+                    cpu_usage=prom_client.get_cpu_usage(serive_name),
                 )
                 logger.info(sample)
 

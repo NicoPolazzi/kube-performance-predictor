@@ -1,16 +1,26 @@
 from kubernetes import client, config
 
 
-def get_services_names() -> set[str]:
-    """
-    Connects to Kubernetes and retrieves a set of services' names.
+class KubernetesClient:
+    """KubernetesClient is a client that is responsible for interacting with a k8s cluster."""
 
-    We assume that all target services reside in the default namespace and have an app label.
-    """
-    config.load_kube_config()
-    api_instance = client.CoreV1Api()
-    pods = api_instance.list_namespaced_pod(namespace="default", label_selector="app", watch=False)
+    api_instance: client.CoreV1Api
 
-    service_names = {pod.metadata.labels["app"] for pod in pods.items}
+    def __init__(self) -> None:
+        config.load_kube_config()
+        self.api_instance = client.CoreV1Api()
 
-    return service_names
+    def get_services_names(self) -> set[str]:
+        """
+        get_service_names recover a list of services' names from a k8s cluster.
+
+        We assume that all target services reside in the default namespace and have an app label.
+        """
+
+        pods = self.api_instance.list_namespaced_pod(
+            namespace="default", label_selector="app", watch=False
+        )
+
+        service_names = {pod.metadata.labels["app"] for pod in pods.items}
+
+        return service_names

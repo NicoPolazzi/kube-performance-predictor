@@ -30,7 +30,3 @@ mypy_path = "kpp"
 check_untyped_defs = true
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
-pythonpath = [
-  "src"
-]
