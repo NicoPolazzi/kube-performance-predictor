@@ -1,62 +1,48 @@
-import math
-from typing import Any
+import logging
+import time
 
-from prometheus_api_client import PrometheusConnect
+from dataclasses import dataclass
+
+from kpp.prometheus_client import Provider
+from kpp.kubernetes_client import get_services_names
+
+PROMETHEUS_SERVER_URL = "http://localhost:9090"
 
 
-VALUE_KEY = "value"
+@dataclass
+class PerformanceSample:
+    service_name: str
+    response_time: float
+    throughput: float
+    cpu_usage: float
 
 
-class Provider:
-    """The idea here is to create an adapter for the external dependency."""
+def main():
+    logging.basicConfig(format="%(asctime)s %(message)s")
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
 
-    prom: PrometheusConnect
+    provider = Provider(PROMETHEUS_SERVER_URL)
+    service_names = get_services_names()
 
-    def __init__(self, server_url: str) -> None:
-        self.prom = PrometheusConnect(url=server_url, disable_ssl=True)
+    time_interval = 15
 
-    def get_average_response_time(self, service_name: str) -> float:
-        """
-        get_average_response_time returns the response time in seconds of a service_name quering the Prometheus server.
+    try:
+        while True:
+            for serive_name in service_names:
+                sample = PerformanceSample(
+                    service_name=serive_name,
+                    response_time=provider.get_average_response_time(serive_name),
+                    throughput=provider.get_throughtput(serive_name),
+                    cpu_usage=provider.get_cpu_usage(serive_name),
+                )
+                logger.info(sample)
 
-        We are assuming that all our services resides in the default namespace.
-        """
+            time.sleep(time_interval)
 
-        response = self.prom.custom_query(
-            query=f'sum(rate(istio_request_duration_milliseconds_sum{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m]))/sum(rate(istio_request_duration_milliseconds_count{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m])) / 1000'
-        )
+    except KeyboardInterrupt:
+        logger.info("program interrupted by the User")
 
-        return self._extract_metric_value(response)
 
-    def get_throughtput(self, service_name: str) -> float:
-        """
-        get_throughput returns the requests per second of a service_name quering the Prometheus server.
-
-        We are assuming that all our services resides in the default namespace.
-        """
-
-        response = self.prom.custom_query(
-            query=f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}", destination_workload_namespace="default"}}[5m]))'
-        )
-
-        return self._extract_metric_value(response)
-
-    def get_cpu_usage(self, service_name: str) -> float:
-        """
-        get_cpu_usage returns the cpu usage of the pods running a service_name quering the Prometheus server.
-
-        We are assuming that all our services resides in the default namespace.
-        """
-
-        response = self.prom.custom_query(
-            query=f'sum(rate(container_cpu_usage_seconds_total{{pod=~"{service_name}-.*", namespace="default"}}[5m]))'
-        )
-
-        return self._extract_metric_value(response)
-
-    def _extract_metric_value(self, response: Any) -> float:
-        if not response:
-            return math.nan
-
-        value_str = response[0][VALUE_KEY][1]
-        return float(value_str)
+if __name__ == "__main__":
+    main()
