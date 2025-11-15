@@ -10,7 +10,7 @@ PROMETHEUS_URL = "http://localhost:9090"
 DEPLOYMENT_NAME = "loadgenerator"
 NAMESPACE = "default"
 TEST_DURATION_SECONDS = 300
-USER_COUNTS_TO_TEST = [10]  # TODO: test with different loads
+USER_COUNTS_TO_TEST = [10, 50, 100]  # TODO: test with different loads
 
 
 @dataclass
@@ -22,7 +22,7 @@ class PerformanceSample:
 
 
 def main():
-    logging.basicConfig(format="%(asctime)s %(message)s")
+    logging.basicConfig(filename="experiments.log", filemode="a", format="%(asctime)s %(message)s")
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
@@ -31,10 +31,15 @@ def main():
 
     service_names = kube_client.get_services_names()
 
-    time_interval = 15
+    experiment_duration = 60
+    query_time_interval = 10
 
-    try:
-        while True:
+    for user_count in USER_COUNTS_TO_TEST:
+        logger.info(f"--- Starting test for {user_count} users ---")
+        kube_client.apply_loadgenerator_patch(str(user_count))
+
+        current_experiment_duration = 0
+        while current_experiment_duration <= experiment_duration:
             for serive_name in service_names:
                 sample = PerformanceSample(
                     service_name=serive_name,
@@ -44,10 +49,12 @@ def main():
                 )
                 logger.info(sample)
 
-            time.sleep(time_interval)
+            time.sleep(query_time_interval)
+            current_experiment_duration += query_time_interval
 
-    except KeyboardInterrupt:
-        logger.info("program interrupted by the User")
+        logger.info(f"Test for {user_count} users ended with success")
+
+    logger.info("Experiment ended with success.")
 
 
 if __name__ == "__main__":

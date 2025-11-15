@@ -36,7 +36,7 @@ class PrometheusClient:
         """
 
         response = self.prom.custom_query(
-            query=f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}", destination_workload_namespace="default"}}[5m]))'
+            query=f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}", destination_workload_namespace="default"}}[1m]))'
         )
 
         return self._extract_metric_value(response)
@@ -49,7 +49,7 @@ class PrometheusClient:
         """
 
         response = self.prom.custom_query(
-            query=f'sum(rate(container_cpu_usage_seconds_total{{pod=~"{service_name}-.*", namespace="default"}}[5m]))'
+            query=f'sum(rate(container_cpu_usage_seconds_total{{pod=~"{service_name}-.*", namespace="default"}}[1m]))'
         )
 
         return self._extract_metric_value(response)
