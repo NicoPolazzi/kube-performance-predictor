@@ -7,10 +7,9 @@ from prometheus_client import PrometheusClient
 from kubernetes_client import KubernetesClient
 
 PROMETHEUS_URL = "http://localhost:9090"
-DEPLOYMENT_NAME = "loadgenerator"
-NAMESPACE = "default"
-TEST_DURATION_SECONDS = 300
-USER_COUNTS_TO_TEST = [10, 50, 100]  # TODO: test with different loads
+EXPERIMENT_DURATION_SECONDS = 60
+QUERY_SAMPLE_DURATION_SECONDS = 10
+USER_COUNTS_TO_TEST = [10, 50, 100]
 
 
 @dataclass
@@ -22,7 +21,10 @@ class PerformanceSample:
 
 
 def main():
-    logging.basicConfig(filename="experiments.log", filemode="a", format="%(asctime)s %(message)s")
+    logging.basicConfig(
+        format="%(asctime)s %(message)s",
+        handlers=[logging.FileHandler(filename="app.log", mode="w"), logging.StreamHandler()],
+    )
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
@@ -31,15 +33,12 @@ def main():
 
     service_names = kube_client.get_services_names()
 
-    experiment_duration = 60
-    query_time_interval = 10
-
     for user_count in USER_COUNTS_TO_TEST:
-        logger.info(f"--- Starting test for {user_count} users ---")
-        kube_client.apply_loadgenerator_patch(str(user_count))
+        logger.info(f"Starting test for {user_count} users...")
+        kube_client.change_performance_test_load(str(user_count))
 
         current_experiment_duration = 0
-        while current_experiment_duration <= experiment_duration:
+        while current_experiment_duration <= EXPERIMENT_DURATION_SECONDS:
             for serive_name in service_names:
                 sample = PerformanceSample(
                     service_name=serive_name,
@@ -49,8 +48,8 @@ def main():
                 )
                 logger.info(sample)
 
-            time.sleep(query_time_interval)
-            current_experiment_duration += query_time_interval
+            time.sleep(QUERY_SAMPLE_DURATION_SECONDS)
+            current_experiment_duration += QUERY_SAMPLE_DURATION_SECONDS
 
         logger.info(f"Test for {user_count} users ended with success")
 
