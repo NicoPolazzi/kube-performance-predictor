@@ -1,62 +1,65 @@
-import math
-from typing import Any
+import logging
+import time
 
-from prometheus_api_client import PrometheusConnect
+from dataclasses import dataclass
+
+from prometheus_client import PrometheusClient
+from kubernetes_client import KubernetesClient
+
+# TODO: use a configuration module instead of hardcoding configuation
+PROMETHEUS_URL = "http://localhost:9090"
+EXPERIMENT_DURATION_SECONDS = 60
+QUERY_SAMPLE_DURATION_SECONDS = 10
+USER_COUNTS_TO_TEST = [10, 50, 100]
 
 
-VALUE_KEY = "value"
+@dataclass
+class PerformanceSample:
+    service_name: str
+    response_time: float
+    throughput: float
+    cpu_usage: float
 
 
-class Provider:
-    """The idea here is to create an adapter for the external dependency."""
+def main():
+    logging.basicConfig(
+        format="%(asctime)s %(message)s",
+        handlers=[logging.FileHandler(filename="app.log", mode="w"), logging.StreamHandler()],
+    )
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
 
-    prom: PrometheusConnect
+    prom_client = PrometheusClient(PROMETHEUS_URL)
+    kube_client = KubernetesClient()
 
-    def __init__(self, server_url: str) -> None:
-        self.prom = PrometheusConnect(url=server_url, disable_ssl=True)
+    service_names = kube_client.get_services_names()
 
-    def get_average_response_time(self, service_name: str) -> float:
-        """
-        get_average_response_time returns the response time in seconds of a service_name quering the Prometheus server.
+    # TODO: extract a module in order to separate program initialization with run
+    for user_count in USER_COUNTS_TO_TEST:
+        logger.info(f"Starting test for {user_count} users...")
+        kube_client.change_performance_test_load(str(user_count))
 
-        We are assuming that all our services resides in the default namespace.
-        """
+        # We skip the first performance sample
+        time.sleep(QUERY_SAMPLE_DURATION_SECONDS * 2)
+        current_experiment_duration = QUERY_SAMPLE_DURATION_SECONDS * 2
 
-        response = self.prom.custom_query(
-            query=f'sum(rate(istio_request_duration_milliseconds_sum{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m]))/sum(rate(istio_request_duration_milliseconds_count{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m])) / 1000'
-        )
+        while current_experiment_duration <= EXPERIMENT_DURATION_SECONDS:
+            for serive_name in service_names:
+                sample = PerformanceSample(
+                    service_name=serive_name,
+                    response_time=prom_client.get_average_response_time(serive_name),
+                    throughput=prom_client.get_throughtput(serive_name),
+                    cpu_usage=prom_client.get_cpu_usage(serive_name),
+                )
+                logger.info(sample)
 
-        return self._extract_metric_value(response)
+            time.sleep(QUERY_SAMPLE_DURATION_SECONDS)
+            current_experiment_duration += QUERY_SAMPLE_DURATION_SECONDS
 
-    def get_throughtput(self, service_name: str) -> float:
-        """
-        get_throughput returns the requests per second of a service_name quering the Prometheus server.
+        logger.info(f"Test for {user_count} users ended with success")
 
-        We are assuming that all our services resides in the default namespace.
-        """
+    logger.info("Experiment ended with success.")
 
-        response = self.prom.custom_query(
-            query=f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}", destination_workload_namespace="default"}}[5m]))'
-        )
 
-        return self._extract_metric_value(response)
-
-    def get_cpu_usage(self, service_name: str) -> float:
-        """
-        get_cpu_usage returns the cpu usage of the pods running a service_name quering the Prometheus server.
-
-        We are assuming that all our services resides in the default namespace.
-        """
-
-        response = self.prom.custom_query(
-            query=f'sum(rate(container_cpu_usage_seconds_total{{pod=~"{service_name}-.*", namespace="default"}}[5m]))'
-        )
-
-        return self._extract_metric_value(response)
-
-    def _extract_metric_value(self, response: Any) -> float:
-        if not response:
-            return math.nan
-
-        value_str = response[0][VALUE_KEY][1]
-        return float(value_str)
+if __name__ == "__main__":
+    main()

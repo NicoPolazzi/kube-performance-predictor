@@ -6,10 +6,10 @@ authors = [
     {name = "NicoPolazzi",email = "nicolo.polazzi@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "prometheus-api-client (>=0.6.0,<0.7.0)",
-    "kubernetes (>=34.1.0,<35.0.0)"
+    "kubernetes (>=34.1.0,<35.0.0)",
 ]
 
 [tool.poetry]
@@ -23,16 +23,15 @@ build-backend = "poetry.core.masonry.api"
 [dependency-groups]
 dev = [
     "ruff (>=0.14.4,<0.15.0)",
-    "pytest (>=9.0.0,<10.0.0)",
-    "pytest-mock (>=3.15.1,<4.0.0)"
 ]
 
 [tool.mypy]
-mypy_path = "kpp"
-check_untyped_defs = true
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
-pythonpath = [
-  "src"
-]
+[tool.black]
+line-length = 100
+target-version = ['py312']
+
