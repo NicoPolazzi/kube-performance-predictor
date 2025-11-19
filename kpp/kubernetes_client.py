@@ -6,8 +6,6 @@ from kubernetes import client, config
 
 logger = logging.getLogger(__name__)
 
-# TODO: change also the variable RATE in order to have all concurrent users at the start.
-
 
 class KubernetesClient:
     """KubernetesClient is a client that is responsible for interacting with a k8s cluster."""
@@ -45,6 +43,8 @@ class KubernetesClient:
         To perform the patch we need firstly to get the deployment from K8s, then we apply the patch and then we need
         to wait for the deployment of the new service.
 
+        We aim to generate after one second 'user_count' concurrent users.
+
         We are patching the container named main and we check multiple criteria in order to check if the
         patch is correctly applied.
         """
@@ -67,7 +67,12 @@ def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> clie
                 f"Found '{env_var.name}'. Changing value from '{env_var.value}' to '{user_count}'"
             )
             env_var.value = user_count
-            break
+
+        if env_var.name == "RATE":
+            logger.debug(
+                f"Found '{env_var.name}'. Changing value from '{env_var.value}' to '{user_count}'"
+            )
+            env_var.value = user_count
 
     patched_deployment = api.patch_namespaced_deployment(
         name=name, namespace="default", body=deployment
