@@ -37,7 +37,10 @@ def main():
         logger.info(f"Starting test for {user_count} users...")
         kube_client.change_performance_test_load(str(user_count))
 
-        current_experiment_duration = 0
+        # We skip the first performance sample
+        time.sleep(QUERY_SAMPLE_DURATION_SECONDS * 2)
+        current_experiment_duration = QUERY_SAMPLE_DURATION_SECONDS * 2
+
         while current_experiment_duration <= EXPERIMENT_DURATION_SECONDS:
             for serive_name in service_names:
                 sample = PerformanceSample(

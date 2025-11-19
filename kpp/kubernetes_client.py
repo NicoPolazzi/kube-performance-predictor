@@ -3,6 +3,8 @@ import time
 
 from kubernetes import client, config
 
+DEFAULT_NAMESPACE = "default"
+APP_LABEL = "app"
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ class KubernetesClient:
         """
 
         pods = self.api_instance.list_namespaced_pod(
-            namespace="default", label_selector="app", watch=False
+            namespace=DEFAULT_NAMESPACE, label_selector=APP_LABEL, watch=False
         )
 
         service_names = {pod.metadata.labels["app"] for pod in pods.items}
