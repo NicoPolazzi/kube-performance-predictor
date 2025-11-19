@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from prometheus_client import PrometheusClient
 from kubernetes_client import KubernetesClient
 
+# TODO: use a configuration module instead of hardcoding configuation
 PROMETHEUS_URL = "http://localhost:9090"
 EXPERIMENT_DURATION_SECONDS = 60
 QUERY_SAMPLE_DURATION_SECONDS = 10
@@ -33,6 +34,7 @@ def main():
 
     service_names = kube_client.get_services_names()
 
+    # TODO: extract a module in order to separate program initialization with run
     for user_count in USER_COUNTS_TO_TEST:
         logger.info(f"Starting test for {user_count} users...")
         kube_client.change_performance_test_load(str(user_count))

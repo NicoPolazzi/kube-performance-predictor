@@ -1,6 +1,6 @@
 # Kube Performance Predictor
 
-This project represents my Master's thesis project in Sofware: Science and Technology at the University of Florence.
+This project represents my Master's thesis in Sofware: Science and Technology at the University of Florence.
 
 ## Requirements
 
@@ -10,11 +10,10 @@ Ensure that you have the following tools installed:
 * [Istioctl](https://istio.io/latest/docs/setup/getting-started/)
 
 
-## Experiment
+## Experiment Setup
 
 The tests were performed on a local cluster using Minikube with a deployed [microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) application.
 
-### Setup
 
 Create the cluster:
 
@@ -50,7 +49,7 @@ Once all pods are running, expose the promethues server:
 kubectl port-forward -n istio-system service/prometheus 9090:9090
 ```
 
-### Run
+## Usage
 
 You can run the experiment with:
 

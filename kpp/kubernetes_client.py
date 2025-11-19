@@ -9,6 +9,7 @@ APP_LABEL = "app"
 logger = logging.getLogger(__name__)
 
 
+# TODO: probably a method to stop the loadgenerator at the end of the experiments is needed. At the current state, the generation runs infinitely.
 class KubernetesClient:
     """KubernetesClient is a client that is responsible for interacting with a k8s cluster."""
 
