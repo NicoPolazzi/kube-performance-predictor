@@ -59,7 +59,7 @@ class KubernetesClient:
 def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> client.V1Deployment:
     deployment = api.read_namespaced_deployment(name=name, namespace="default")
 
-    container = deployment.spec.template.spec.containers[0]  # type: ignore
+    container = deployment.spec.template.spec.containers[0]
 
     for env_var in container.env:
         if env_var.name == "USERS":
@@ -73,7 +73,7 @@ def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> clie
         name=name, namespace="default", body=deployment
     )
 
-    return patched_deployment  # type: ignore
+    return patched_deployment
 
 
 def _wait_for_patch_completition(
@@ -97,8 +97,8 @@ def _wait_for_patch_completition(
             time.sleep(sleep_interval)
             continue
 
-        status = deployment.status  # type: ignore
-        spec = deployment.spec  # type: ignore
+        status = deployment.status
+        spec = deployment.spec
 
         observed_generation = status.observed_generation or 0
         updated_replicas = status.updated_replicas or 0
