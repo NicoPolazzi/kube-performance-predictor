@@ -1,17 +1,10 @@
 import logging
 import time
 
+from config import config
 from kubernetes_client import KubernetesClient
 from prometheus_client import PrometheusClient
-
-from kpp.sample import PerformanceSample
-
-# TODO: use a configuration module instead of hardcoding configuration
-PROMETHEUS_URL = "http://localhost:9090"
-EXPERIMENT_DURATION_SECONDS = 30
-QUERY_SAMPLE_DURATION_SECONDS = 5
-WARMUP_PERIOD_SECONDS = QUERY_SAMPLE_DURATION_SECONDS * 2
-USER_COUNTS_TO_TEST = [100]
+from sample import PerformanceSample
 
 
 def main():
@@ -25,15 +18,15 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    prom_client = PrometheusClient(PROMETHEUS_URL)
+    prom_client = PrometheusClient(config.prometheus_url)
     kube_client = KubernetesClient()
     service_names = kube_client.get_services_names()
 
     try:
-        for user_count in USER_COUNTS_TO_TEST:
+        for user_count in config.user_counts:
             logger.info(f"Starting test for {user_count} users...")
             kube_client.change_performance_test_load(str(user_count))
-            time.sleep(WARMUP_PERIOD_SECONDS)  # We skip the first performance sample
+
             _collect_data_samples(logger, service_names=service_names, client=prom_client)
             logger.info(f"Test for {user_count} users ended with success")
     finally:
@@ -43,8 +36,9 @@ def main():
 
 
 def _collect_data_samples(logger, service_names: set[str], client: PrometheusClient) -> None:
-    current_experiment_duration = WARMUP_PERIOD_SECONDS
-    while current_experiment_duration <= EXPERIMENT_DURATION_SECONDS:
+    time.sleep(config.warmup_period)  # We skip the first performance sample
+    current_experiment_duration = config.warmup_period
+    while current_experiment_duration <= config.experiment_duration:
         for service_name in service_names:
             sample = PerformanceSample(
                 service_name=service_name,
@@ -54,10 +48,9 @@ def _collect_data_samples(logger, service_names: set[str], client: PrometheusCli
             )
             logger.info(sample)
 
-        time.sleep(QUERY_SAMPLE_DURATION_SECONDS)
-        current_experiment_duration += QUERY_SAMPLE_DURATION_SECONDS
+        time.sleep(config.query_interval)
+        current_experiment_duration += config.query_interval
 
 
 if __name__ == "__main__":
-    main()
     main()
