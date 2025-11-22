@@ -1,9 +1,10 @@
 import logging
 import time
-from dataclasses import dataclass
 
 from kubernetes_client import KubernetesClient
 from prometheus_client import PrometheusClient
+
+from kpp.sample import PerformanceSample
 
 # TODO: use a configuration module instead of hardcoding configuration
 PROMETHEUS_URL = "http://localhost:9090"
@@ -11,14 +12,6 @@ EXPERIMENT_DURATION_SECONDS = 30
 QUERY_SAMPLE_DURATION_SECONDS = 5
 WARMUP_PERIOD_SECONDS = QUERY_SAMPLE_DURATION_SECONDS * 2
 USER_COUNTS_TO_TEST = [100]
-
-
-@dataclass
-class PerformanceSample:
-    service_name: str
-    response_time: float
-    throughput: float
-    cpu_usage: float
 
 
 def main():
@@ -66,4 +59,5 @@ def _collect_data_samples(logger, service_names: set[str], client: PrometheusCli
 
 
 if __name__ == "__main__":
+    main()
     main()
