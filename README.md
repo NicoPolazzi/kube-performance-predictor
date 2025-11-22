@@ -49,6 +49,17 @@ Once all pods are running, expose the promethues server:
 kubectl port-forward -n istio-system service/prometheus 9090:9090
 ```
 
+## Configuration
+
+The application uses Environment Variables for configuration. You can set these in your shell or create a `.env` file in the root directory of the project. For example:
+
+```
+PROMETHEUS_URL=http://localhost:9090
+EXPERIMENT_DURATION_SECONDS=600
+QUERY_SAMPLE_DURATION_SECONDS=60
+USER_COUNTS_TO_TEST=10,50,100
+```
+
 ## Usage
 
 You can run the experiment with:
