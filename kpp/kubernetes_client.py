@@ -76,7 +76,7 @@ class KubernetesClient:
 
 def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> client.V1Deployment:
     deployment = api.read_namespaced_deployment(name=name, namespace="default")
-
+    deployment.spec.replicas = 1
     container = deployment.spec.template.spec.containers[0]
 
     for env_var in container.env:
