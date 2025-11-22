@@ -3,7 +3,6 @@ from typing import Any
 
 from prometheus_api_client import PrometheusConnect
 
-
 VALUE_KEY = "value"
 
 
@@ -28,7 +27,7 @@ class PrometheusClient:
 
         return self._extract_metric_value(response)
 
-    def get_throughtput(self, service_name: str) -> float:
+    def get_throughput(self, service_name: str) -> float:
         """
         get_throughput returns the requests per second of a service_name quering the Prometheus server.
 
