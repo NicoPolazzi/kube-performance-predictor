@@ -24,7 +24,10 @@ class PerformanceSample:
 def main():
     logging.basicConfig(
         format="%(asctime)s %(message)s",
-        handlers=[logging.FileHandler(filename="app.log", mode="w"), logging.StreamHandler()],
+        handlers=[
+            logging.FileHandler(filename="app.log", mode="w"),
+            logging.StreamHandler(),
+        ],
     )
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
