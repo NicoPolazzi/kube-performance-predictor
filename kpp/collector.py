@@ -1,16 +1,15 @@
 import logging
 import time
-
 from dataclasses import dataclass
 
-from prometheus_client import PrometheusClient
 from kubernetes_client import KubernetesClient
+from prometheus_client import PrometheusClient
 
 # TODO: use a configuration module instead of hardcoding configuation
 PROMETHEUS_URL = "http://localhost:9090"
 EXPERIMENT_DURATION_SECONDS = 60
 QUERY_SAMPLE_DURATION_SECONDS = 10
-USER_COUNTS_TO_TEST = [10, 50, 100]
+USER_COUNTS_TO_TEST = [10]
 
 
 @dataclass
@@ -38,6 +37,7 @@ def main():
     service_names = kube_client.get_services_names()
 
     # TODO: extract a module in order to separate program initialization with run
+
     for user_count in USER_COUNTS_TO_TEST:
         logger.info(f"Starting test for {user_count} users...")
         kube_client.change_performance_test_load(str(user_count))
@@ -47,12 +47,12 @@ def main():
         current_experiment_duration = QUERY_SAMPLE_DURATION_SECONDS * 2
 
         while current_experiment_duration <= EXPERIMENT_DURATION_SECONDS:
-            for serive_name in service_names:
+            for service_name in service_names:
                 sample = PerformanceSample(
-                    service_name=serive_name,
-                    response_time=prom_client.get_average_response_time(serive_name),
-                    throughput=prom_client.get_throughtput(serive_name),
-                    cpu_usage=prom_client.get_cpu_usage(serive_name),
+                    service_name=service_name,
+                    response_time=prom_client.get_average_response_time(service_name),
+                    throughput=prom_client.get_throughtput(service_name),
+                    cpu_usage=prom_client.get_cpu_usage(service_name),
                 )
                 logger.info(sample)
 
@@ -61,6 +61,7 @@ def main():
 
         logger.info(f"Test for {user_count} users ended with success")
 
+    kube_client.stop_loadgenerator()
     logger.info("Experiment ended with success.")
 
 

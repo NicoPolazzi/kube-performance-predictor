@@ -5,6 +5,7 @@ from kubernetes import client, config
 
 DEFAULT_NAMESPACE = "default"
 APP_LABEL = "app"
+LOADGENERATOR_NAME = "loadgenerator"
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,24 @@ class KubernetesClient:
 
         logger.info(f"Changing the number of concurrent users to {user_count}")
         patched_deployment = _patch_deployment(
-            name="loadgenerator", user_count=user_count, api=self.apps_api_istance
+            name=LOADGENERATOR_NAME, user_count=user_count, api=self.apps_api_istance
         )
         _wait_for_patch_completition(patched_deployment, self.apps_api_istance)
+
+    def stop_loadgenerator(self) -> None:
+        """
+        Scales the loadgenerator deployment to 0 replicas to stop traffic generation.
+        """
+
+        body = {"spec": {"replicas": 0}}
+
+        try:
+            self.apps_api_istance.patch_namespaced_deployment(
+                name=LOADGENERATOR_NAME, namespace=DEFAULT_NAMESPACE, body=body
+            )
+            logger.info("Load generator stopped successfully.")
+        except client.ApiException as e:
+            logger.error(f"Failed to stop load generator: {e}")
 
 
 def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> client.V1Deployment:
@@ -98,7 +114,9 @@ def _wait_for_patch_completition(
 
     while time.time() - start_time < timeout_seconds:
         try:
-            deployment = api.read_namespaced_deployment(name="loadgenerator", namespace="default")
+            deployment = api.read_namespaced_deployment(
+                name=LOADGENERATOR_NAME, namespace="default"
+            )
         except client.ApiException as e:
             logger.error(f"Error reading deployment status: {e}")
             time.sleep(sleep_interval)
