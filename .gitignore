@@ -1,7 +1,13 @@
+# Exclude IDE settings
+.vscode
+
+# Exclude cache files.
 __pycache__
 
+# Exclude log files.
 *.log
 
-.vscode
+# Exclude performance results
+performance_results_*
 
 .env

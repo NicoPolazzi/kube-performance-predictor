@@ -1,7 +1,10 @@
 import csv
+import logging
 import time
 
 from sample import PerformanceSample
+
+logger = logging.getLogger(__name__)
 
 
 class CsvWriter:
@@ -22,6 +25,7 @@ class CsvWriter:
     def write_samples(self, samples: list[PerformanceSample], user_count: int) -> None:
         """write_samples writes a batch of performance samples to the CSV."""
         if not samples:
+            logger.error("empty samples batch!")
             return
 
         with open(self.filename, mode="a", newline="") as f:
@@ -37,3 +41,4 @@ class CsvWriter:
                 for sample in samples
             ]
             writer.writerows(rows)
+            logger.info(f"wrote samples on CSV for {user_count} users.")
