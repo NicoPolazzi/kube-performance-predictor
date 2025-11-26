@@ -57,7 +57,10 @@ The application uses Environment Variables for configuration. You can set these 
 PROMETHEUS_URL=http://localhost:9090
 EXPERIMENT_DURATION_SECONDS=600
 QUERY_SAMPLE_DURATION_SECONDS=60
-USER_COUNTS_TO_TEST=10,50,100
+
+TEST_USER_START=10
+TEST_USER_END=100
+TEST_USER_STEP=5
 ```
 
 ## Usage
