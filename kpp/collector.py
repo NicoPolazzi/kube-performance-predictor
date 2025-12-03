@@ -7,6 +7,8 @@ from kubernetes_client import KubernetesClient
 from prometheus_client import PrometheusClient
 from sample import PerformanceSample
 
+COOLDOWN_SECONDS = 180
+
 
 def main():
     logging.basicConfig(
@@ -35,6 +37,10 @@ def main():
                 user_count=user_count,
             )
             logger.info(f"Test for {user_count} users ended with success")
+            logger.info(f"waiting for {COOLDOWN_SECONDS} seconds...")
+            kube_client.stop_loadgenerator()
+            time.sleep(COOLDOWN_SECONDS)
+
     finally:
         kube_client.stop_loadgenerator()
 
