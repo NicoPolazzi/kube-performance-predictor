@@ -49,6 +49,7 @@ def _collect_data_samples(
 
     while current_experiment_duration <= config.experiment_duration:
         samples_batch = []
+        current_timestamp = time.time()
 
         for service_name in service_names:
             sample = PerformanceSample(
@@ -59,7 +60,7 @@ def _collect_data_samples(
             )
             samples_batch.append(sample)
 
-        writer.write_samples(samples_batch, user_count)
+        writer.write_samples(samples_batch, user_count, current_timestamp)
         time.sleep(config.query_interval)
         current_experiment_duration += config.query_interval
 

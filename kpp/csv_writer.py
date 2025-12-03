@@ -16,13 +16,22 @@ class CsvWriter:
         self._initialize_file()
 
     def _initialize_file(self) -> None:
-        headers = ["Service", "User Count", "Response Time (s)", "Throughput (req/s)", "CPU Usage"]
+        headers = [
+            "Timestamp",
+            "Service",
+            "User Count",
+            "Response Time (s)",
+            "Throughput (req/s)",
+            "CPU Usage",
+        ]
 
         with open(self.filename, mode="a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(headers)
 
-    def write_samples(self, samples: list[PerformanceSample], user_count: int) -> None:
+    def write_samples(
+        self, samples: list[PerformanceSample], user_count: int, timestamp: float
+    ) -> None:
         """write_samples writes a batch of performance samples to the CSV."""
         if not samples:
             logger.error("empty samples batch!")
@@ -32,6 +41,7 @@ class CsvWriter:
             writer = csv.writer(f)
             rows = [
                 [
+                    timestamp,
                     sample.service_name,
                     user_count,
                     sample.response_time,
