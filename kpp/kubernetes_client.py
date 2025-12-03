@@ -33,9 +33,10 @@ class KubernetesClient:
         )
 
         service_names = {pod.metadata.labels["app"] for pod in pods.items}
+        # This is needed because the redis-cart communicates via TCP.
+        service_names.discard("redis-cart")
 
         logger.debug(f"Service names found in the cluster: {service_names}")
-
         return service_names
 
     def change_performance_test_load(self, user_count: str) -> None:
