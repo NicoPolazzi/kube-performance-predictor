@@ -11,31 +11,48 @@ Ensure that you have the following tools installed:
 * [Kustomize](https://github.com/kubernetes-sigs/kustomize)
 
 
-## Experiment Setup
+## Setup
 
-The tests were performed on a local cluster using Minikube with a deployed [microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) application.
+The tests were performed on a local cluster using Minikube with the deployed [microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) application.
+
+In order to replicate the experiment on your device, you need to follow these setup steps.
 
 
-Create the cluster:
+### Create the cluster
+
+Initialize a Minikube cluster with sufficient resources:
 
 ```shell
  minikube start --cpus=4 --memory 4096 --disk-size 32g
  ```
 
- Install Istio and enable sidecar injection:
+ ### Install Istio and Addons
+
+Install the Istio minimal profile and enable sidecar injection for the default namespace:
 
  ```shell
 istioctl install --set profile=minimal -y
 kubectl label namespace default istio-injection=enabled
 ```
 
-Minikube may lack specific Custom Resource Definitions (CRDs) required for the Gateway API. Install them manually if they are missing:
+**Important**: The minimal profile does not include Prometheus by default. Install it manually to enable metrics collection:
+
+```shell
+kubectl apply -f [https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml](https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml)
+```
+
+### Install Gateway API CRDs
+
+Minikube may lack specific Custom Resource Definitions (CRDs) required for the Gateway API. Install them if missing:
 
 ```shell
 kubectl get crd gateways.gateway.networking.k8s.io &> /dev/null || \
 { kubectl kustomize "github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.3.0" | kubectl apply -f -; }
 ```
-Clone the demo repository and deploy the application with the Istio service mesh component using Kustomize:
+
+### Deploy the application
+
+Clone the demo repository and deploy the application with the Istio service mesh component:
 
 ```shell
 git clone --depth 1 --branch v0 https://github.com/GoogleCloudPlatform/microservices-demo.git
@@ -44,11 +61,8 @@ kustomize edit add component components/service-mesh-istio
 kubectl apply -k .
 ```
 
-Once all pods are running, expose the promethues server:
+Wait for all pods to be in the `Running` state before proceeding.
 
-```shell
-kubectl port-forward -n istio-system service/prometheus 9090:9090
-```
 
 ## Configuration
 
@@ -66,7 +80,17 @@ TEST_USER_STEP=5
 
 ## Usage
 
-You can run the experiment with:
+### Expose Prometheus
+
+Before running the experiment, you must expose the Prometheus server so the collector can access it:
+
+```shell
+kubectl port-forward -n istio-system service/prometheus 9090:9090
+```
+
+### Run the experiment
+
+In a new terminal window, execute the collector script:
 
 ```shell
 poetry run python kpp/collector.py 
