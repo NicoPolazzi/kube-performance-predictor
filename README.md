@@ -8,6 +8,7 @@ Ensure that you have the following tools installed:
 * [Poetry](https://python-poetry.org/)
 * [Minikube](https://minikube.sigs.k8s.io/docs/start/)
 * [Istioctl](https://istio.io/latest/docs/setup/getting-started/)
+* [Kustomize](https://github.com/kubernetes-sigs/kustomize)
 
 
 ## Experiment Setup
