@@ -6,11 +6,14 @@ authors = [
     {name = "NicoPolazzi",email = "nicolo.polazzi@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "prometheus-api-client (>=0.6.0,<0.7.0)",
     "kubernetes (>=34.1.0,<35.0.0)",
     "python-dotenv (>=1.2.1,<2.0.0)",
+    "torch (>=2.10.0,<3.0.0)",
+    "scikit-learn (>=1.8.0,<2.0.0)",
+    "torch-geometric (>=2.7.0,<3.0.0)",
 ]
 
 [tool.poetry]
@@ -24,6 +27,7 @@ build-backend = "poetry.core.masonry.api"
 [dependency-groups]
 dev = [
     "ruff (>=0.14.4,<0.15.0)",
+    "mypy (>=1.19.1,<2.0.0)",
 ]
 
 [tool.mypy]

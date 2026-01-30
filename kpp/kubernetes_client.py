@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import cast
 
 from kubernetes import client, config
 
@@ -76,8 +77,15 @@ class KubernetesClient:
 
 
 def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> client.V1Deployment:
-    deployment = api.read_namespaced_deployment(name=name, namespace="default")
+    deployment = cast(
+        client.V1Deployment, api.read_namespaced_deployment(name=name, namespace="default")
+    )
+
+    if deployment.spec is None:
+        raise ValueError(f"Deployment '{name}' has no spec.")
+
     deployment.spec.replicas = 1
+
     container = deployment.spec.template.spec.containers[0]
 
     for env_var in container.env:
@@ -97,7 +105,7 @@ def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> clie
         name=name, namespace="default", body=deployment
     )
 
-    return patched_deployment
+    return cast(client.V1Deployment, patched_deployment)
 
 
 def _wait_for_patch_completition(
@@ -115,20 +123,29 @@ def _wait_for_patch_completition(
 
     while time.time() - start_time < timeout_seconds:
         try:
-            deployment = api.read_namespaced_deployment(
-                name=LOADGENERATOR_NAME, namespace="default"
+            deployment = cast(
+                client.V1Deployment,
+                api.read_namespaced_deployment(name=LOADGENERATOR_NAME, namespace="default"),
             )
         except client.ApiException as e:
             logger.error(f"Error reading deployment status: {e}")
             time.sleep(sleep_interval)
             continue
 
+        if deployment.status is None:
+            raise ValueError(f"Deployment {deployment} has no status.")
+
         status = deployment.status
+
+        if deployment.spec is None:
+            raise ValueError(f"Deployment '{deployment}' has no spec.")
+
         spec = deployment.spec
 
         observed_generation = status.observed_generation or 0
         updated_replicas = status.updated_replicas or 0
         available_replicas = status.available_replicas or 0
+
         desired_replicas = spec.replicas or 0
 
         if (
