@@ -7,9 +7,10 @@ __pycache__
 # Exclude log files.
 *.log
 
-# Exclude results and models
+# Exclude plots, results and models
 performance_results_*
 best_model.pth
+plots/
 
 # Exclude environment variables
 .env
