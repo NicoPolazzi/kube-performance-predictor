@@ -1,7 +1,10 @@
 import logging
 
-import matplotlib.pyplot as plt
-from prediction import DataPreprocessor, DenseGATLSTM, GNNTrainer, HyperParameters
+import pandas as pd
+import torch
+from plotting import run_inference_and_plot
+from prediction import DataPreprocessor, HyperParameters, MetricForecaster
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -21,158 +24,158 @@ NODE_ORDER = [
     "productcatalogservice",
 ]
 
-ADJ_MATRIX = [
-    # fr, ad, rec,cat,chk,crt,shp,cur,pay,eml
-    [0, 1, 1, 1, 1, 1, 1, 1, 0, 0],  # frontend
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # ad
-    [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],  # recommendation
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # productcatalog
-    [0, 0, 0, 1, 0, 1, 1, 1, 1, 1],  # checkout
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # cart
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # shipping
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # currency
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # payment
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # email
-]
-
-
-def plot_training_history(history: dict, save_path: str = "plots/training_loss.png") -> None:
-    """
-    Plots the training and validation loss from the training history.
-    """
-    epochs = range(1, len(history["train_loss"]) + 1)
-
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history["train_loss"], label="Training Loss", color="blue")
-    plt.plot(epochs, history["val_loss"], label="Validation Loss", color="orange")
-
-    plt.title("Training Progress")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss (MAE)")
-    plt.legend()
-    plt.grid(True, linestyle="--", alpha=0.7)
-
-    plt.savefig(save_path)
-    plt.close()
-    logger.info(f"Loss plot saved to {save_path}")
-
 
 def main():
-    # 1. Setup Hyperparameters
-    params = HyperParameters(epochs=50, batch_size=32, window_size=10, learning_rate=0.001)
-
-    # 2. Define Features (Must match the columns in your CSV)
-    # Based on PerformanceSample in collector.py
-    feature_cols = ["User Count", "Response Time (s)", "Throughput (req/s)", "CPU Usage"]
-
-    # 3. Process Data
-    csv_path = "performance_results_FINAL.csv"
-
     logger.info("Initializing Preprocessor...")
+
+    params = HyperParameters(
+        epochs=100,
+        batch_size=64,
+        lstm_hidden_size=32,
+        lstm_layers=2,
+        window_size=20,
+        learning_rate=0.001,
+        dropout=0.2,
+    )
+
+    csv_path = "performance_results_medium.csv"
+    feature_cols = ["User Count", "Response Time (s)", "Throughput (req/s)", "CPU Usage"]
     preprocessor = DataPreprocessor(NODE_ORDER, feature_cols)
 
     try:
-        # Load and split data
-        t_tensor, v_tensor, test_tensor = preprocessor.load_and_process(
+        # 1. Load Data (Returns Train and Test lists; Val is empty)
+        #    Note the '_' to ignore the empty validation list
+        train_list, _, test_list = preprocessor.load_and_process(
             csv_path, split_ratios=(params.val_split, params.test_split)
         )
 
-        # Create sliding windows for LSTM
-        train_ds = preprocessor.create_windows(t_tensor, params.window_size)
-        val_ds = preprocessor.create_windows(v_tensor, params.window_size)
+        # 2. Reconstruct test_df based on User Count logic (Interpolation Strategy)
+        #    We must filter the DataFrame using the EXACT same logic as the preprocessor
+        #    to ensure the model predicts on the same data we visualize.
+        full_df = pd.read_csv(csv_path)
 
-        # Create DataLoaders
+        # Re-derive the test user counts
+        unique_users = sorted(full_df["User Count"].unique())
+        # Logic: "If index % 3 == 0, it's Test" (Matches your preprocessor)
+        test_users = [u for i, u in enumerate(unique_users) if (i + 1) % 3 == 0]
+
+        # Filter: Only rows with "Test" user counts
+        test_df = full_df[full_df["User Count"].isin(test_users)].copy().reset_index(drop=True)
+
+        # 3. Create Datasets
+        #    Note: noise_level=0 is good for now to stabilize training
+        train_ds = preprocessor.create_dataset(train_list, params.window_size, noise_level=0)
+        test_ds = preprocessor.create_dataset(test_list, params.window_size)
+
+        # 4. Handle Missing Validation Set
+        #    Since we don't have a separate validation split, we use the Test set
+        #    as the validation set. This lets the scheduler/early-stopping work
+        #    by monitoring how well the model interpolates (generalizes).
+        val_ds = test_ds
+
+        # 5. Create DataLoaders
         train_loader = DataLoader(train_ds, batch_size=params.batch_size, shuffle=True)
-        val_loader = DataLoader(val_ds, batch_size=params.batch_size)
+        val_loader = DataLoader(val_ds, batch_size=params.batch_size)  # Actually checking Test data
+        test_loader = DataLoader(test_ds, batch_size=params.batch_size)
 
-        logger.info(f"Data Loaded. Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
+        logger.info(
+            f"Data Loaded. Train samples: {len(train_ds)}, Test/Val samples: {len(test_ds)}"
+        )
 
     except FileNotFoundError:
         logger.error(f"Could not find {csv_path}. Run collector.py first to generate data.")
         return
 
-    # 4. Initialize Model
-    model = DenseGATLSTM(
-        num_nodes=len(NODE_ORDER),
-        in_channels=len(feature_cols),
-        out_channels=len(feature_cols),
-        adj_matrix=ADJ_MATRIX,
-        params=params,
+    # Input: 4 features (Users + Metrics)
+    # Output: 3 metrics (RT, Throughput, CPU)
+    model = MetricForecaster(
+        input_size=len(feature_cols),
+        hidden_size=params.lstm_hidden_size,
+        num_layers=params.lstm_layers,
+        output_size=3,
+        dropout=params.dropout,
     )
+    optimizer = torch.optim.Adam(model.parameters(), lr=params.learning_rate, weight_decay=1e-4)
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5)
+    criterion = torch.nn.MSELoss()
+    early_stop_counter = 0
+    early_stop_patience = 10
 
-    # 5. Train
-    trainer = GNNTrainer(model, params)
-    history = trainer.train(train_loader, val_loader)
+    best_val_loss = float("inf")
+    logger.info(params)
+    logger.info("Starting Training...")
+    for epoch in range(params.epochs):
+        train_loss = 0.0
+        val_loss = 0.0
 
-    logger.info("Training Run Complete.")
-    plot_training_history(history)
+        model.train()
+        for inputs, targets in train_loader:
+            optimizer.zero_grad()
+            predictions = model(inputs)
+            loss = criterion(predictions, targets)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+
+        avg_train_loss = train_loss / len(train_loader)
+
+        model.eval()
+        with torch.no_grad():
+            for inputs, targets in val_loader:
+                predictions = model(inputs)
+                loss = criterion(predictions, targets)
+                val_loss += loss.item()
+
+        avg_val_loss = val_loss / len(val_loader)
+
+        scheduler.step(avg_val_loss)
+
+        if (epoch + 1) % 5 == 0:
+            current_lr = optimizer.param_groups[0]["lr"]
+            logger.info(
+                f"Epoch {epoch + 1} | Train: {avg_train_loss:.6f} | Val: {avg_val_loss:.6f} | LR: {current_lr:.6f}"
+            )
+
+        # --- Checkpointing & Early Stopping ---
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            torch.save(model.state_dict(), "best_metric_forecaster.pth")
+            early_stop_counter = 0  # Reset
+        else:
+            early_stop_counter += 1
+            if early_stop_counter >= early_stop_patience:
+                logger.info(f"Early stopping triggered at epoch {epoch + 1}")
+                break
+
+    logger.info("Training Complete. Best model saved.")
+
+    test_loss = 0.0
+    model.eval()
+
+    with torch.no_grad():
+        for inputs, targets in test_loader:
+            predictions = model(inputs)
+            loss = criterion(predictions, targets)
+            test_loss += loss.item()
+
+    avg_test_loss = test_loss / len(test_loader)
+
+    logger.info("--------------------------------------------------")
+    logger.info(f"FINAL RESULT - Test Set Loss (MSE): {avg_test_loss:.6f}")
+    logger.info("--------------------------------------------------")
+
+    model.load_state_dict(torch.load("best_metric_forecaster.pth"))
+
+    run_inference_and_plot(
+        model=model,
+        preprocessor=preprocessor,
+        test_df=test_df,
+        service_name="frontend",
+        user_count=200,
+        feature_cols=feature_cols,
+        target_cols=["Response Time (s)", "Throughput (req/s)", "CPU Usage"],
+    )
 
 
 if __name__ == "__main__":
     main()
-
-
-# TODO: implement the inference phase, with graphs to show the results. Also it is useful to plot graphs about the errors.
-# def inspect_inference(model, loader, scaler, node_names, target_node='frontend'):
-#     """
-#     Runs inference, Inverse Scales, and Inverse Logs (expm1) to get real units.
-#     """
-#     model.eval()
-
-#     x, y_true_scaled = next(iter(loader))
-#     x, y_true_scaled = x.to(device), y_true_scaled.to(device)
-
-#     with torch.no_grad():
-#         y_pred_scaled = model(x)
-
-#     y_pred_np = y_pred_scaled.cpu().numpy()
-#     y_true_np = y_true_scaled.cpu().numpy()
-
-#     y_pred_np = np.maximum(0, y_pred_np)
-
-#     batch_size, num_nodes, num_features = y_pred_np.shape
-
-
-#     y_pred_flat = y_pred_np.reshape(-1, num_features)
-#     y_true_flat = y_true_np.reshape(-1, num_features)
-
-#     y_pred_log = scaler.inverse_transform(y_pred_flat)
-#     y_true_log = scaler.inverse_transform(y_true_flat)
-
-#     # np.expm1 is the mathematical inverse of np.log1p
-#     y_pred_real_flat = np.expm1(y_pred_log)
-#     y_true_real_flat = np.expm1(y_true_log)
-
-#     # 3. Reshape back to 3D
-#     y_pred_real = y_pred_real_flat.reshape(batch_size, num_nodes, num_features)
-#     y_true_real = y_true_real_flat.reshape(batch_size, num_nodes, num_features)
-
-#     if target_node in node_names:
-#         node_idx = node_names.index(target_node)
-#     else:
-#         node_idx = 0
-
-#     print(f"\n--- Inference Snapshot for Node: {node_names[node_idx]} ---")
-#     print(f"{'Metric':<20} | {'Actual':<12} | {'Predicted':<12} | {'Error'}")
-#     print("-" * 60)
-
-#     feature_names = ['User Count', 'Response Time', 'Throughput', 'CPU Usage']
-
-#     sample_idx = 0
-#     for feat_idx, feat_name in enumerate(feature_names):
-#         actual = y_true_real[sample_idx, node_idx, feat_idx]
-#         predicted = y_pred_real[sample_idx, node_idx, feat_idx]
-
-#         if feat_name == 'User Count':
-#             act_display = int(round(actual))
-#             pred_display = int(round(predicted))
-#             error = abs(act_display - pred_display)
-#             print(f"{feat_name:<20} | {act_display:<12} | {pred_display:<12} | {error:<12}")
-#         else:
-#             error = abs(actual - predicted)
-#             print(f"{feat_name:<20} | {actual:<12.4f} | {predicted:<12.4f} | {error:<.4f}")
-
-# model.load_state_dict(torch.load('best_model_dense_gat_lstm.pth'))
-# inspect_inference(model, test_loader, scaler, NODE_ORDER, target_node='frontend')
-# inspect_inference(model, test_loader, scaler, NODE_ORDER, target_node='adservice')
-# inspect_inference(model, test_loader, scaler, NODE_ORDER, target_node='adservice')
