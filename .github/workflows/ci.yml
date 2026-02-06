@@ -1,0 +1,32 @@
+name: CI Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+
+    - name: Install Poetry
+      run: |
+        pipx install poetry
+        poetry config virtualenvs.in-project true
+
+    - name: Install Dependencies
+      run: poetry install
+
+    - name: Run Ruff (Linting)
+      run: poetry run ruff check .
+
+    - name: Run Mypy (Type Checking)
+      run: poetry run mypy .
+
+    - name: Run Tests
+      run: poetry run pytest tests/
