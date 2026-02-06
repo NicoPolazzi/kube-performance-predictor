@@ -18,18 +18,20 @@ dependencies = [
 ]
 
 [tool.poetry]
-package-mode = false
-packages = [{include = "kube_performance_predictor", from = "src"}]
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+packages = [{include = "kpp"}]
 
 [dependency-groups]
 dev = [
     "ruff (>=0.14.4,<0.15.0)",
     "mypy (>=1.19.1,<2.0.0)",
 ]
+
+test = ["pytest (>=9.0.2,<10.0.0)"]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
 
 [tool.mypy]
 python_version = "3.12"

@@ -2,10 +2,11 @@ import logging
 
 import pandas as pd
 import torch
-from plotting import run_inference_and_plot
-from prediction import DataPreprocessor, HyperParameters, MetricForecaster
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+
+from kpp.predictor.plotting import run_inference_and_plot
+from kpp.predictor.prediction import DataPreprocessor, HyperParameters, MetricForecaster
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
