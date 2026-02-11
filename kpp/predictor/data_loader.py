@@ -1,3 +1,5 @@
+from typing import cast
+
 import pandas as pd
 
 REQUIRED_COLUMNS = [
@@ -24,3 +26,8 @@ def load_data(path: str) -> pd.DataFrame:
     df["Timestamp"] = df["Timestamp"].dt.round("1min")
 
     return df
+
+
+def split_by_service(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    splitted_data = {service: group.copy() for service, group in df.groupby("Service")}
+    return cast(dict[str, pd.DataFrame], splitted_data)
