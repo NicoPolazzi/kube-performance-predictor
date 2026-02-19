@@ -12,6 +12,7 @@ performance_results_*
 best_model.pth
 kpp_scaler.pth
 plots/
+models/
 
 # Exclude environment variables
 .env
