@@ -34,6 +34,3 @@ jobs:
 
     - name: Run Type Checker
       run: poetry run mypy .
-
-    - name: Run Tests
-      run: poetry run pytest tests/

@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
-from kpp.predictor.model import KubernetesPredictorMLP
+from kpp.predictor.model import PerformancesGRU
 from kpp.predictor.pipeline import PerformancesDataPipeline
 from kpp.predictor.visualizer import evaluate_and_plot
 
@@ -28,35 +28,27 @@ def train_model(
 
     best_test_loss = float("inf")
 
-    # if config_path.exists():
-    #     with open(config_path, "r") as f:
-    #         try:
-    #             old_config = json.load(f)
-    #             best_test_loss = old_config.get("best_test_loss", float("inf"))
-    #         except json.JSONDecodeError:
-    #             print("Warning: config file is corrupted. Starting fresh.")
+    if config_path.exists():
+        with open(config_path, "r") as f:
+            try:
+                old_config = json.load(f)
+                is_same_arch = (
+                    old_config.get("num_layers") == model.num_layers
+                    and old_config.get("hidden_size") == model.hidden_size
+                )
 
-    # if config_path.exists():
-    #     with open(config_path, "r") as f:
-    #         try:
-    #             old_config = json.load(f)
-    #             is_same_arch = (
-    #                 old_config.get("num_layers") == model.num_layers
-    #                 and old_config.get("hidden_size") == model.hidden_size
-    #             )
+                if is_same_arch:
+                    best_test_loss = old_config.get("best_test_loss", float("inf"))
+                    print(
+                        f"Found existing model for {service_name}. Historical best to beat: {best_test_loss:.6f}"
+                    )
+                else:
+                    print(
+                        f"Architecture change detected for {service_name}. Ignoring old checkpoints."
+                    )
 
-    #             if is_same_arch:
-    #                 best_test_loss = old_config.get("best_test_loss", float("inf"))
-    #                 print(
-    #                     f"Found existing model for {service_name}. Historical best to beat: {best_test_loss:.6f}"
-    #                 )
-    #             else:
-    #                 print(
-    #                     f"Architecture change detected for {service_name}. Ignoring old checkpoints."
-    #                 )
-
-    #         except json.JSONDecodeError:
-    #             print("Warning: config file is corrupted. Starting fresh.")
+            except json.JSONDecodeError:
+                print("Warning: config file is corrupted. Starting fresh.")
 
     hyperparams = {
         "service": service_name,
@@ -93,7 +85,6 @@ def train_model(
             train_total_samples += batch_X.size(0)
 
         train_loss /= train_total_samples
-        scheduler.step(test_loss)
 
         model.eval()
         with torch.no_grad():
@@ -104,6 +95,8 @@ def train_model(
                 test_total_samples += batch_X.size(0)
 
         test_loss /= test_total_samples
+
+        scheduler.step(test_loss)
 
         """
         FIXME: Probably we want to compute the RMSE or just don't compute it at all
@@ -159,28 +152,15 @@ def main():
         input_size = X_train.shape[2]
         output_size = y_train.shape[1]
 
-        # model = PerformancesGRU(
-        #     input_size=input_size,
-        #     hidden_size=32,
-        #     output_size=output_size,
-        #     num_layers=2,
-        #     dropout=0.1,
-        # )
-
-        # model = KubernetesPredictorCNN(
-        #     input_size=input_size,
-        #     hidden_size=512,  # Start with 64 filters
-        #     output_size=output_size,
-        # )
-
-        model = KubernetesPredictorMLP(
+        model = PerformancesGRU(
             input_size=input_size,
-            hidden_size=128,
+            hidden_size=64,
             output_size=output_size,
-            sequence_length=sequence_length,
+            num_layers=2,
+            dropout=0.1,
         )
 
-        train_model(service_name, model, train_loader, test_loader, epochs=500)
+        train_model(service_name, model, train_loader, test_loader, epochs=100)
 
         print(f"Loading the best saved weights for {service_name}...")
         model_path = Path("models") / f"gru_{service_name}.pth"
