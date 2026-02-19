@@ -14,12 +14,12 @@ from kpp.predictor.visualizer import evaluate_and_plot
 
 def train_model(
     service_name: str,
-    model: nn.Module,
+    model: PerformancesGRU,
     train_loader: DataLoader,
     test_loader: DataLoader,
     epochs: int = 50,
     learning_rate: float = 0.001,
-):
+) -> None:
     """Handles the training and validation loops."""
     out_dir = Path("models")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -35,6 +35,8 @@ def train_model(
                 is_same_arch = (
                     old_config.get("num_layers") == model.num_layers
                     and old_config.get("hidden_size") == model.hidden_size
+                    and old_config.get("input_size") == model.gru.input_size
+                    and old_config.get("output_size") == model.fc.out_features
                 )
 
                 if is_same_arch:
@@ -54,13 +56,11 @@ def train_model(
         "service": service_name,
         "learning_rate": learning_rate,
         "epochs": epochs,
-        "hidden_size": getattr(model, "hidden_size", "N/A"),
-        "num_layers": getattr(model, "num_layers", "N/A"),
+        "hidden_size": model.hidden_size,
+        "num_layers": model.num_layers,
+        "input_size": model.gru.input_size,
+        "output_size": model.fc.out_features,
     }
-    with open(config_path, "w") as f:
-        json.dump(hyperparams, f, indent=4)
-
-    print(f"Saved hyperparameters to {config_path}")
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -84,6 +84,8 @@ def train_model(
             train_loss += loss.item() * batch_X.size(0)
             train_total_samples += batch_X.size(0)
 
+        if train_total_samples == 0:
+            raise RuntimeError(f"No training samples found for {service_name}.")
         train_loss /= train_total_samples
 
         model.eval()
@@ -94,13 +96,12 @@ def train_model(
                 test_loss += loss.item() * batch_X.size(0)
                 test_total_samples += batch_X.size(0)
 
+        if test_total_samples == 0:
+            raise RuntimeError(f"No test samples found for {service_name}.")
         test_loss /= test_total_samples
 
         scheduler.step(test_loss)
 
-        """
-        FIXME: Probably we want to compute the RMSE or just don't compute it at all
-        """
         train_rmse = np.sqrt(train_loss)
         test_rmse = np.sqrt(test_loss)
 
@@ -122,8 +123,13 @@ def train_model(
     print(f"Training complete. Best model weights are maintained at: {model_path}")
 
 
-def main():
-    csv_path = "performance_results_medium.csv"
+def main() -> None:
+    csv_path = "dataset/performance_results_medium.csv"
+    if not Path(csv_path).exists():
+        raise FileNotFoundError(
+            f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
+        )
+
     sequence_length = 5
     target_cols = [
         "Response Time (s)",
@@ -133,6 +139,13 @@ def main():
 
     pipeline = PerformancesDataPipeline(sequence_length, target_cols)
     datasets = pipeline.run(csv_path, split_ratio=0.8)
+
+    # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
+    all_features = [
+        col
+        for col in PerformancesDataPipeline.REQUIRED_COLUMNS
+        if col not in ("Timestamp", "Service")
+    ]
 
     for service_name, data_split in datasets.items():
         print(f"\n--- Service: {service_name} ---")
@@ -164,12 +177,19 @@ def main():
 
         print(f"Loading the best saved weights for {service_name}...")
         model_path = Path("models") / f"gru_{service_name}.pth"
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Model file not found: {model_path}. Training may not have saved a checkpoint "
+                f"(no epoch improved on the historical best)."
+            )
         model.load_state_dict(torch.load(model_path, weights_only=True))
 
         print(f"Evaluating and plotting {service_name}...")
 
-        all_features = ["User Count", "Response Time (s)", "Throughput (req/s)", "CPU Usage"]
-        service_scaler = pipeline.scalers[service_name]
+        service_scaler = pipeline.scalers.get(service_name)
+        if service_scaler is None:
+            print(f"Warning: No scaler found for {service_name}. Skipping evaluation.")
+            continue
 
         evaluate_and_plot(
             model=model,
