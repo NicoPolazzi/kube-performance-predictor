@@ -1,14 +1,20 @@
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
 
+from kpp.logging_config import setup_logging
+
+logger = logging.getLogger("predictor.table")
+
 
 def generate_rmse_table(models_dir="models"):
+    setup_logging("predictor.table")
     models_path = Path(models_dir)
 
     if not models_path.exists():
-        print(f"Error: The directory '{models_dir}' does not exist.")
+        logger.error(f"The directory '{models_dir}' does not exist.")
         return
 
     results = []
@@ -27,13 +33,13 @@ def generate_rmse_table(models_dir="models"):
                     error_percentage = best_rmse * 100
                     results.append((service, best_rmse, error_percentage))
                 else:
-                    print(f"Warning: No 'best_test_loss' found in {config_file.name}")
+                    logger.warning(f"No 'best_test_loss' found in {config_file.name}")
 
             except json.JSONDecodeError:
-                print(f"Error reading JSON from {config_file.name}")
+                logger.error(f"Error reading JSON from {config_file.name}")
 
     if not results:
-        print("No valid results found to generate a table.")
+        logger.warning("No valid results found to generate a table.")
         return
 
     results.sort(key=lambda x: x[0])

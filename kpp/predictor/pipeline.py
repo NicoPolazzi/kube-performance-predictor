@@ -1,8 +1,11 @@
+import logging
 from typing import Dict, List, Tuple, TypeAlias
 
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+
+logger = logging.getLogger("predictor.pipeline")
 
 ServiceDatasets: TypeAlias = Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]
 
@@ -90,7 +93,7 @@ class PerformancesDataPipeline:
         )
         filled_count = missing_before - df[numeric_cols].isna().sum().sum()
         if filled_count > 0:
-            print(f"Warning: Filled {filled_count} missing values via ffill/bfill. Large counts may indicate data quality issues.")
+            logger.warning(f"Filled {filled_count} missing values via ffill/bfill. Large counts may indicate data quality issues.")
 
         return df
 
@@ -121,8 +124,8 @@ class PerformancesDataPipeline:
             split_idx = int(len(group) * ratio)
             test_slice = group.iloc[split_idx:]
             if len(test_slice) == 0:
-                print(
-                    f"Warning: A user count group of size {len(group)} produced no test samples "
+                logger.warning(
+                    f"A user count group of size {len(group)} produced no test samples "
                     f"with ratio={ratio}. Consider collecting more data."
                 )
             train_dfs.append(group.iloc[:split_idx])

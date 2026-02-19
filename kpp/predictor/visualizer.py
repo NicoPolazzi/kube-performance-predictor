@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -5,6 +6,8 @@ import numpy as np
 import torch
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader
+
+logger = logging.getLogger("predictor.visualizer")
 
 
 def evaluate_and_plot(
@@ -89,4 +92,4 @@ def evaluate_and_plot(
     file_path = output_dir / f"{service_name}_predictions.png"
     plt.savefig(file_path)
 
-    print(f"Saved plot for {service_name} at {file_path}")
+    logger.info(f"Saved plot for {service_name} at {file_path}")

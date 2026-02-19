@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -7,9 +8,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
+from kpp.logging_config import setup_logging
 from kpp.predictor.model import PerformancesGRU
 from kpp.predictor.pipeline import PerformancesDataPipeline
 from kpp.predictor.visualizer import evaluate_and_plot
+
+logger = logging.getLogger("predictor")
 
 
 def train_model(
@@ -41,16 +45,16 @@ def train_model(
 
                 if is_same_arch:
                     best_test_loss = old_config.get("best_test_loss", float("inf"))
-                    print(
+                    logger.info(
                         f"Found existing model for {service_name}. Historical best to beat: {best_test_loss:.6f}"
                     )
                 else:
-                    print(
+                    logger.warning(
                         f"Architecture change detected for {service_name}. Ignoring old checkpoints."
                     )
 
             except json.JSONDecodeError:
-                print("Warning: config file is corrupted. Starting fresh.")
+                logger.warning("Config file is corrupted. Starting fresh.")
 
     hyperparams = {
         "service": service_name,
@@ -116,14 +120,16 @@ def train_model(
         current_lr = optimizer.param_groups[0]["lr"]
 
         if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(
+            logger.info(
                 f"Epoch [{epoch + 1}/{epochs}] | LR: {current_lr:.6f} | Train RMSE: {train_rmse:.4f} | Test RMSE: {test_rmse:.4f}"
             )
 
-    print(f"Training complete. Best model weights are maintained at: {model_path}")
+    logger.info(f"Training complete. Best model weights are maintained at: {model_path}")
 
 
 def main() -> None:
+    setup_logging("predictor")
+
     csv_path = "dataset/performance_results_medium.csv"
     if not Path(csv_path).exists():
         raise FileNotFoundError(
@@ -148,13 +154,13 @@ def main() -> None:
     ]
 
     for service_name, data_split in datasets.items():
-        print(f"\n--- Service: {service_name} ---")
+        logger.info(f"--- Service: {service_name} ---")
 
         X_train, y_train = data_split["train"]
         X_test, y_test = data_split["test"]
 
-        print(f"Train Shape: {X_train.shape} (Samples, Window, Features)")
-        print(f"Test Shape:  {X_test.shape}")
+        logger.info(f"Train Shape: {X_train.shape} (Samples, Window, Features)")
+        logger.info(f"Test Shape:  {X_test.shape}")
 
         train_dataset = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
         test_dataset = TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test))
@@ -175,7 +181,7 @@ def main() -> None:
 
         train_model(service_name, model, train_loader, test_loader, epochs=100)
 
-        print(f"Loading the best saved weights for {service_name}...")
+        logger.info(f"Loading the best saved weights for {service_name}...")
         model_path = Path("models") / f"gru_{service_name}.pth"
         if not model_path.exists():
             raise FileNotFoundError(
@@ -184,11 +190,11 @@ def main() -> None:
             )
         model.load_state_dict(torch.load(model_path, weights_only=True))
 
-        print(f"Evaluating and plotting {service_name}...")
+        logger.info(f"Evaluating and plotting {service_name}...")
 
         service_scaler = pipeline.scalers.get(service_name)
         if service_scaler is None:
-            print(f"Warning: No scaler found for {service_name}. Skipping evaluation.")
+            logger.warning(f"No scaler found for {service_name}. Skipping evaluation.")
             continue
 
         evaluate_and_plot(
