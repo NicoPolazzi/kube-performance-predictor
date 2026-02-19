@@ -1,0 +1,36 @@
+name: CI Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+
+    - name: Install Poetry
+      run: pipx install poetry
+
+    - name: Configure Poetry
+      run: poetry config virtualenvs.in-project true
+
+    - name: Cache virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-python3.14-${{ hashFiles('poetry.lock') }}
+
+    - name: Install Dependencies
+      run: poetry install
+
+    - name: Run Linters
+      run: poetry run ruff check .
+
+    - name: Run Type Checker
+      run: poetry run mypy .
