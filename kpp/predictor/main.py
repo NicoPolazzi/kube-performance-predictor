@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from kpp.predictor.model import PerformancesGRU
 from kpp.predictor.pipeline import PerformancesDataPipeline
+from kpp.predictor.visualizer import evaluate_and_plot
 
 
 def train_model(
@@ -65,7 +66,7 @@ def train_model(
 
 def main():
     csv_path = "performance_results_medium.csv"
-    sequence_length = 10
+    sequence_length = 5
     target_cols = [
         "Response Time (s)",
         "Throughput (req/s)",
@@ -102,6 +103,20 @@ def main():
         )
 
         train_model(model, train_loader, test_loader, epochs=50)
+
+        print(f"Evaluating and plotting {service_name}...")
+
+        all_features = ["User Count", "Response Time (s)", "Throughput (req/s)", "CPU Usage"]
+        service_scaler = pipeline.scalers[service_name]
+
+        evaluate_and_plot(
+            model=model,
+            test_loader=test_loader,
+            scaler=service_scaler,
+            target_columns=target_cols,
+            service_name=service_name,
+            feature_names=all_features,
+        )
 
 
 if __name__ == "__main__":
