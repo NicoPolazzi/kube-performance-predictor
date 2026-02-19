@@ -29,5 +29,9 @@ def load_data(path: str) -> pd.DataFrame:
 
 
 def split_by_service(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """
+    Creates a dataframe for each service. It returns a dictionary where the keys are the services' names
+    and the value are the splits.
+    """
     splitted_data = {service: group.copy() for service, group in df.groupby("Service")}
     return cast(dict[str, pd.DataFrame], splitted_data)

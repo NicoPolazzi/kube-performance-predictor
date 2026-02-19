@@ -7,6 +7,8 @@ def normalize_data(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, MinMaxScaler]
     """
     Normalize the data contained in the dataframe using a MinMaxScaler. It returns the fitted scaler
     and the normalized dataframe.
+
+    Note: is up to the caller to check for numeric data.
     """
     scaler = MinMaxScaler()
     scaler.fit(dataframe)
