@@ -15,42 +15,26 @@ class PrometheusClient:
         self.prom = PrometheusConnect(url=server_url, disable_ssl=True)
 
     def get_average_response_time(self, service_name: str) -> float:
-        """
-        get_average_response_time returns the response time in seconds of a service_name quering the Prometheus server.
-
-        We are assuming that all our services resides in the default namespace.
-        """
-
-        response = self.prom.custom_query(
-            query=f'sum(rate(istio_request_duration_milliseconds_sum{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m]))/sum(rate(istio_request_duration_milliseconds_count{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m])) / 1000'
+        """Returns the response time in seconds for service_name. Assumes services are in the default namespace."""
+        return self._query(
+            f'sum(rate(istio_request_duration_milliseconds_sum{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m]))'
+            f'/sum(rate(istio_request_duration_milliseconds_count{{destination_workload=~"{service_name}",destination_workload_namespace="default"}}[1m])) / 1000'
         )
-
-        return self._extract_metric_value(response)
 
     def get_throughput(self, service_name: str) -> float:
-        """
-        get_throughput returns the requests per second of a service_name quering the Prometheus server.
-
-        We are assuming that all our services resides in the default namespace.
-        """
-
-        response = self.prom.custom_query(
-            query=f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}", destination_workload_namespace="default"}}[1m]))'
+        """Returns the requests per second for service_name. Assumes services are in the default namespace."""
+        return self._query(
+            f'sum(rate(istio_requests_total{{destination_workload=~"{service_name}", destination_workload_namespace="default"}}[1m]))'
         )
-
-        return self._extract_metric_value(response)
 
     def get_cpu_usage(self, service_name: str) -> float:
-        """
-        get_cpu_usage returns the cpu usage of the pods running a service_name quering the Prometheus server.
-
-        We are assuming that all our services resides in the default namespace.
-        """
-
-        response = self.prom.custom_query(
-            query=f'sum(rate(container_cpu_usage_seconds_total{{pod=~"{service_name}-.*", namespace="default"}}[1m]))'
+        """Returns the CPU usage for pods running service_name. Assumes services are in the default namespace."""
+        return self._query(
+            f'sum(rate(container_cpu_usage_seconds_total{{pod=~"{service_name}-.*", namespace="default"}}[1m]))'
         )
 
+    def _query(self, promql: str) -> float:
+        response = self.prom.custom_query(query=promql)
         return self._extract_metric_value(response)
 
     def _extract_metric_value(self, response: Any) -> float:

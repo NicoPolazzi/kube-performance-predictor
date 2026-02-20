@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -5,6 +6,8 @@ import numpy as np
 import torch
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader
+
+logger = logging.getLogger("predictor.visualizer")
 
 
 def evaluate_and_plot(
@@ -21,6 +24,19 @@ def evaluate_and_plot(
     For the inverse transformation we need also the user count, so we need to handle this
     discrepancy. In the predictions, user count is missing.
     """
+    missing_in_features = [col for col in target_columns if col not in feature_names]
+    if missing_in_features:
+        raise ValueError(
+            f"Target columns not found in feature_names: {missing_in_features}. "
+            f"Available features: {feature_names}"
+        )
+
+    if len(feature_names) != scaler.n_features_in_:
+        raise ValueError(
+            f"feature_names has {len(feature_names)} columns but scaler expects "
+            f"{scaler.n_features_in_}. Ensure feature_names matches the columns used during fitting."
+        )
+
     all_predictions = []
     all_targets = []
 
@@ -51,7 +67,8 @@ def evaluate_and_plot(
     if num_targets == 1:
         axes = [axes]  # Ensure it's iterable if only 1 target
 
-    plot_limit = min(200, len(real_predictions))  # Check for readability
+    # Cap at 200 points for readability; dense plots with many samples become illegible.
+    plot_limit = min(200, len(real_predictions))
 
     for i, col_name in enumerate(target_columns):
         ax = axes[i]
@@ -75,4 +92,4 @@ def evaluate_and_plot(
     file_path = output_dir / f"{service_name}_predictions.png"
     plt.savefig(file_path)
 
-    print(f"Saved plot for {service_name} at {file_path}")
+    logger.info(f"Saved plot for {service_name} at {file_path}")

@@ -13,8 +13,8 @@ dependencies = [
     "python-dotenv (>=1.2.1,<2.0.0)",
     "torch (>=2.10.0,<3.0.0)",
     "scikit-learn (>=1.8.0,<2.0.0)",
-    "torch-geometric (>=2.7.0,<3.0.0)",
     "matplotlib (>=3.10.8,<4.0.0)",
+    "pyyaml (>=6.0,<7.0)",
 ]
 
 [tool.poetry]
@@ -25,9 +25,8 @@ dev = [
     "ruff (>=0.14.4,<0.15.0)",
     "mypy (>=1.19.1,<2.0.0)",
     "pandas-stubs (>=3.0.0.260204,<4.0.0.0)",
+    "types-pyyaml (>=6.0.12.20250915,<7.0.0.0)",
 ]
-
-test = ["pytest (>=9.0.2,<10.0.0)"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

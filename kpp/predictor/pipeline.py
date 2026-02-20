@@ -1,8 +1,13 @@
-from typing import Dict, List, Tuple
+import logging
+from typing import Dict, List, Tuple, TypeAlias
 
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+
+logger = logging.getLogger("predictor.pipeline")
+
+ServiceDatasets: TypeAlias = Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]
 
 
 class PerformancesDataPipeline:
@@ -33,7 +38,7 @@ class PerformancesDataPipeline:
 
     def run(
         self, csv_path: str, split_ratio: float = 0.8
-    ) -> Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]:
+    ) -> ServiceDatasets:
         """
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
             {
@@ -48,8 +53,12 @@ class PerformancesDataPipeline:
         service_dfs = self._split_by_service(df)
         processed_datasets = {}
 
-        for service_name, df in service_dfs.items():
-            normalized_df = self._normalize_service(df, service_name)
+        for service_name, service_df in service_dfs.items():
+            if "User Count" not in service_df.columns:
+                raise ValueError(
+                    f"Column 'User Count' required for stratified splitting (service: {service_name})."
+                )
+            normalized_df = self._normalize_service(service_df, service_name)
             train_df, test_df = self._stratified_split(normalized_df, split_ratio)
             X_train, y_train = self._create_windows(train_df)
             X_test, y_test = self._create_windows(test_df)
@@ -78,9 +87,13 @@ class PerformancesDataPipeline:
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         df = df.groupby(["Timestamp", "Service"], as_index=False)[numeric_cols].mean()
 
+        missing_before = df[numeric_cols].isna().sum().sum()
         df[numeric_cols] = df.groupby("Service")[numeric_cols].transform(
             lambda x: x.ffill().bfill()
         )
+        filled_count = missing_before - df[numeric_cols].isna().sum().sum()
+        if filled_count > 0:
+            logger.warning(f"Filled {filled_count} missing values via ffill/bfill. Large counts may indicate data quality issues.")
 
         return df
 
@@ -106,26 +119,41 @@ class PerformancesDataPipeline:
         train_dfs = []
         test_dfs = []
 
-        if "User Count" not in df.columns:
-            raise ValueError("Column 'User Count' required for stratified splitting.")
-
         for _, group in df.groupby("User Count"):
             group = group.sort_index()
             split_idx = int(len(group) * ratio)
+            test_slice = group.iloc[split_idx:]
+            if len(test_slice) == 0:
+                logger.warning(
+                    f"A user count group of size {len(group)} produced no test samples "
+                    f"with ratio={ratio}. Consider collecting more data."
+                )
             train_dfs.append(group.iloc[:split_idx])
-            test_dfs.append(group.iloc[split_idx:])
+            test_dfs.append(test_slice)
 
         train = pd.concat(train_dfs).sort_index()
         test = pd.concat(test_dfs).sort_index()
         return train, test
 
     def _create_windows(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        X_samples = []
-        y_samples = []
-
         target_indices = df.columns.get_indexer(pd.Index(self.target_columns))
+        missing_cols = [col for col, idx in zip(self.target_columns, target_indices, strict=True) if idx == -1]
+        if missing_cols:
+            raise ValueError(
+                f"Target columns not found in data: {missing_cols}. "
+                f"Available columns: {list(df.columns)}"
+            )
+
         data = df.to_numpy(dtype=np.float32)
         num_samples = len(data) - self.sequence_length
+        if num_samples <= 0:
+            raise ValueError(
+                f"Not enough data to create windows: {len(data)} rows with "
+                f"sequence_length={self.sequence_length}. Need at least {self.sequence_length + 1} rows."
+            )
+
+        X_samples = []
+        y_samples = []
 
         for i in range(num_samples):
             X_sample = data[i : i + self.sequence_length]

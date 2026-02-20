@@ -1,9 +1,9 @@
-import logging
 import time
 
 from config import config
 from csv_writer import CsvWriter
 from kubernetes_client import KubernetesClient
+from kpp.logging_config import setup_logging
 from prometheus_client import PrometheusClient
 from sample import PerformanceSample
 
@@ -11,15 +11,7 @@ COOLDOWN_SECONDS = 180
 
 
 def main():
-    logging.basicConfig(
-        format="%(asctime)s %(message)s",
-        handlers=[
-            logging.FileHandler(filename="app.log", mode="w"),
-            logging.StreamHandler(),
-        ],
-    )
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger = setup_logging("collector", log_file="app.log")
 
     writer = CsvWriter()
     prom_client = PrometheusClient(config.prometheus_url)
@@ -51,7 +43,7 @@ def _collect_data_samples(
     service_names: set[str], client: PrometheusClient, writer: CsvWriter, user_count: int
 ) -> None:
     time.sleep(config.warmup_period)  # We skip the first performance sample
-    current_experiment_duration = config.warmup_period
+    current_experiment_duration = 0
 
     while current_experiment_duration <= config.experiment_duration:
         samples_batch = []
