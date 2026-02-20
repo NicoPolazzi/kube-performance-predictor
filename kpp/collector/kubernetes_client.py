@@ -7,6 +7,8 @@ from kubernetes import client, config
 DEFAULT_NAMESPACE = "default"
 APP_LABEL = "app"
 LOADGENERATOR_NAME = "loadgenerator"
+PATCH_TIMEOUT_SECONDS = 180
+PATCH_POLL_INTERVAL_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,7 @@ class KubernetesClient:
         patched_deployment = _patch_deployment(
             name=LOADGENERATOR_NAME, user_count=user_count, api=self.apps_api_istance
         )
-        _wait_for_patch_completition(patched_deployment, self.apps_api_istance)
+        _wait_for_patch_completion(patched_deployment, self.apps_api_istance)
 
     def stop_loadgenerator(self) -> None:
         """
@@ -108,7 +110,7 @@ def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> clie
     return cast(client.V1Deployment, patched_deployment)
 
 
-def _wait_for_patch_completition(
+def _wait_for_patch_completion(
     patched_deployment: client.V1Deployment, api: client.AppsV1Api
 ) -> None:
     if patched_deployment is None or patched_deployment.metadata is None:
@@ -117,8 +119,8 @@ def _wait_for_patch_completition(
 
     target_generation = patched_deployment.metadata.generation
 
-    timeout_seconds = 180
-    sleep_interval = 5
+    timeout_seconds = PATCH_TIMEOUT_SECONDS
+    sleep_interval = PATCH_POLL_INTERVAL_SECONDS
     start_time = time.time()
 
     while time.time() - start_time < timeout_seconds:

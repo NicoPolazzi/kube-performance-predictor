@@ -10,7 +10,6 @@ logger = logging.getLogger("predictor.table")
 
 
 def generate_rmse_table(models_dir="models"):
-    setup_logging("predictor.table")
     models_path = Path(models_dir)
 
     if not models_path.exists():
@@ -55,4 +54,5 @@ def generate_rmse_table(models_dir="models"):
 
 
 if __name__ == "__main__":
+    setup_logging("generate_table")
     generate_rmse_table()

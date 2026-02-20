@@ -9,6 +9,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 from kpp.logging_config import setup_logging
+from kpp.predictor.config import config
 from kpp.predictor.model import PerformancesGRU
 from kpp.predictor.pipeline import PerformancesDataPipeline
 from kpp.predictor.visualizer import evaluate_and_plot
@@ -69,7 +70,11 @@ def train_model(
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10, min_lr=1e-6
+        optimizer,
+        mode="min",
+        factor=config.scheduler.factor,
+        patience=config.scheduler.patience,
+        min_lr=config.scheduler.min_lr,
     )
 
     for epoch in range(epochs):
@@ -136,15 +141,14 @@ def main() -> None:
             f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
         )
 
-    sequence_length = 5
     target_cols = [
         "Response Time (s)",
         "Throughput (req/s)",
         "CPU Usage",
     ]
 
-    pipeline = PerformancesDataPipeline(sequence_length, target_cols)
-    datasets = pipeline.run(csv_path, split_ratio=0.8)
+    pipeline = PerformancesDataPipeline(config.pipeline.sequence_length, target_cols)
+    datasets = pipeline.run(csv_path, split_ratio=config.pipeline.split_ratio)
 
     # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
     all_features = [
@@ -165,21 +169,28 @@ def main() -> None:
         train_dataset = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
         test_dataset = TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test))
 
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=config.training.batch_size, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False)
 
         input_size = X_train.shape[2]
         output_size = y_train.shape[1]
 
         model = PerformancesGRU(
             input_size=input_size,
-            hidden_size=64,
+            hidden_size=config.model.hidden_size,
             output_size=output_size,
-            num_layers=2,
-            dropout=0.1,
+            num_layers=config.model.num_layers,
+            dropout=config.model.dropout,
         )
 
-        train_model(service_name, model, train_loader, test_loader, epochs=100)
+        train_model(
+            service_name,
+            model,
+            train_loader,
+            test_loader,
+            epochs=config.training.epochs,
+            learning_rate=config.training.learning_rate,
+        )
 
         logger.info(f"Loading the best saved weights for {service_name}...")
         model_path = Path("models") / f"gru_{service_name}.pth"

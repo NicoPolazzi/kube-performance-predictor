@@ -43,7 +43,7 @@ def _collect_data_samples(
     service_names: set[str], client: PrometheusClient, writer: CsvWriter, user_count: int
 ) -> None:
     time.sleep(config.warmup_period)  # We skip the first performance sample
-    current_experiment_duration = config.warmup_period
+    current_experiment_duration = 0
 
     while current_experiment_duration <= config.experiment_duration:
         samples_batch = []

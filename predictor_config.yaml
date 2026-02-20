@@ -1,0 +1,18 @@
+pipeline:
+  sequence_length: 5
+  split_ratio: 0.8
+
+model:
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.1
+
+training:
+  epochs: 100
+  learning_rate: 0.001
+  batch_size: 32
+
+scheduler:
+  factor: 0.5
+  patience: 10
+  min_lr: 0.000001
