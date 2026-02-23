@@ -7,3 +7,4 @@ class PerformanceSample:
     response_time: float
     throughput: float
     cpu_usage: float
+    cpu_request: float

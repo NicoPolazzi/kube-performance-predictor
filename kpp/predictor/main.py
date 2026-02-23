@@ -135,7 +135,7 @@ def train_model(
 def main() -> None:
     setup_logging("predictor")
 
-    csv_path = "dataset/performance_results_medium.csv"
+    csv_path = "dataset/performance_results_medium_new.csv"
     if not Path(csv_path).exists():
         raise FileNotFoundError(
             f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
@@ -148,7 +148,11 @@ def main() -> None:
     ]
 
     pipeline = PerformancesDataPipeline(config.pipeline.sequence_length, target_cols)
-    datasets = pipeline.run(csv_path, split_ratio=config.pipeline.split_ratio)
+    datasets = pipeline.run(
+        csv_path,
+        train_cpu_lower_percentile=config.pipeline.train_cpu_lower_percentile,
+        train_cpu_upper_percentile=config.pipeline.train_cpu_upper_percentile,
+    )
 
     # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
     all_features = [
@@ -169,7 +173,9 @@ def main() -> None:
         train_dataset = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
         test_dataset = TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test))
 
-        train_loader = DataLoader(train_dataset, batch_size=config.training.batch_size, shuffle=True)
+        train_loader = DataLoader(
+            train_dataset, batch_size=config.training.batch_size, shuffle=True
+        )
         test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False)
 
         input_size = X_train.shape[2]

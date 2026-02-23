@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
-logger = logging.getLogger("predictor.pipeline")
+logger = logging.getLogger(__name__)
 
 ServiceDatasets: TypeAlias = Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]
 
@@ -17,8 +17,8 @@ class PerformancesDataPipeline:
     Flow:
     1. Load CSV & Fix Timestamps (Aggregation)
     2. Split by Microservice
-    3. Normalize (Per Service) -> Stores Scalers for later inversion
-    4. Stratified Split (Per User Load) -> Prevents extrapolation errors
+    3. CPU-Percentage Split -> Train: [min%, max%] utilisation; Test: outside that range
+    4. Normalize (Per Service, fit on train only) -> Stores Scalers for later inversion
     5. Windowing -> Creates (X, y) tensors for ML training
     """
 
@@ -29,6 +29,7 @@ class PerformancesDataPipeline:
         "Response Time (s)",
         "Throughput (req/s)",
         "CPU Usage",
+        "CPU Usage %",
     ]
 
     def __init__(self, sequence_length: int, target_columns: List[str]):
@@ -37,7 +38,10 @@ class PerformancesDataPipeline:
         self.scalers: Dict[str, MinMaxScaler] = {}  # Used to invert the prediction
 
     def run(
-        self, csv_path: str, split_ratio: float = 0.8
+        self,
+        csv_path: str,
+        train_cpu_lower_percentile: float = 0.20,
+        train_cpu_upper_percentile: float = 0.80,
     ) -> ServiceDatasets:
         """
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
@@ -48,18 +52,22 @@ class PerformancesDataPipeline:
                 },
                 "backend": ...
             }
+
+        Split strategy: samples within the per-service CPU percentile range
+        [train_cpu_lower_percentile, train_cpu_upper_percentile] go to train; samples outside
+        that range go to test. Percentiles are computed per service, so each service gets a
+        balanced split regardless of its absolute CPU level. The scaler is fit exclusively on
+        the training split to avoid data leakage.
         """
         df = self._load_data(csv_path)
         service_dfs = self._split_by_service(df)
         processed_datasets = {}
 
         for service_name, service_df in service_dfs.items():
-            if "User Count" not in service_df.columns:
-                raise ValueError(
-                    f"Column 'User Count' required for stratified splitting (service: {service_name})."
-                )
-            normalized_df = self._normalize_service(service_df, service_name)
-            train_df, test_df = self._stratified_split(normalized_df, split_ratio)
+            train_raw, test_raw = self._cpu_percentage_split(
+                service_df, train_cpu_lower_percentile, train_cpu_upper_percentile, service_name
+            )
+            train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
             X_train, y_train = self._create_windows(train_df)
             X_test, y_test = self._create_windows(test_df)
             processed_datasets[service_name] = {
@@ -93,51 +101,88 @@ class PerformancesDataPipeline:
         )
         filled_count = missing_before - df[numeric_cols].isna().sum().sum()
         if filled_count > 0:
-            logger.warning(f"Filled {filled_count} missing values via ffill/bfill. Large counts may indicate data quality issues.")
+            logger.warning(
+                f"Filled {filled_count} missing values via ffill/bfill. Large counts may indicate data quality issues."
+            )
 
         return df
 
     def _split_by_service(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         return {str(service): group.copy() for service, group in df.groupby("Service")}
 
-    def _normalize_service(self, df: pd.DataFrame, service_name: str) -> pd.DataFrame:
-        numeric_df = df.select_dtypes(include=[np.number])
-        scaler = MinMaxScaler()
-        scaler.fit(numeric_df)
-        scaled_values = scaler.transform(numeric_df)
-
-        self.scalers[service_name] = scaler
-        return pd.DataFrame(scaled_values, columns=numeric_df.columns, index=df.index)
-
-    def _stratified_split(
-        self, df: pd.DataFrame, ratio: float
+    def _cpu_percentage_split(
+        self,
+        df: pd.DataFrame,
+        lower_percentile: float,
+        upper_percentile: float,
+        service_name: str,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Splits data while preserving the 'User Count' distribution. So, for each user count,
-        the function creates a train-test split with the specified ratio.
+        Splits the raw (un-normalized) dataframe by per-service CPU percentile boundaries.
+
+        The lower and upper CPU thresholds are computed from this service's own distribution,
+        so each service gets a balanced split regardless of its absolute CPU level. Samples
+        within [p_lower, p_upper] go to train; samples outside go to test.
         """
-        train_dfs = []
-        test_dfs = []
+        cpu_pct = df["CPU Usage %"]
+        min_pct = cpu_pct.quantile(lower_percentile)
+        max_pct = cpu_pct.quantile(upper_percentile)
+        train_mask = (cpu_pct >= min_pct) & (cpu_pct <= max_pct)
 
-        for _, group in df.groupby("User Count"):
-            group = group.sort_index()
-            split_idx = int(len(group) * ratio)
-            test_slice = group.iloc[split_idx:]
-            if len(test_slice) == 0:
-                logger.warning(
-                    f"A user count group of size {len(group)} produced no test samples "
-                    f"with ratio={ratio}. Consider collecting more data."
-                )
-            train_dfs.append(group.iloc[:split_idx])
-            test_dfs.append(test_slice)
+        train_df = df[train_mask].copy()
+        test_df = df[~train_mask].copy()
 
-        train = pd.concat(train_dfs).sort_index()
-        test = pd.concat(test_dfs).sort_index()
-        return train, test
+        logger.info(
+            f"[{service_name}] CPU-percentile split "
+            f"(p{lower_percentile * 100:.0f}–p{upper_percentile * 100:.0f}): "
+            f"{train_mask.sum()} train ({min_pct * 100:.1f}%–{max_pct * 100:.1f}% CPU), "
+            f"{(~train_mask).sum()} test."
+        )
+
+        if len(train_df) == 0:
+            raise ValueError(
+                f"[{service_name}] No training samples found in the CPU percentile range "
+                f"[p{lower_percentile * 100:.0f}, p{upper_percentile * 100:.0f}]. "
+                f"Adjust train_cpu_lower_percentile / train_cpu_upper_percentile."
+            )
+        if len(test_df) == 0:
+            logger.warning(
+                f"[{service_name}] No test samples outside the CPU percentile range. "
+                "The evaluation will not measure out-of-distribution generalisation."
+            )
+
+        return train_df, test_df
+
+    def _normalize_service(
+        self, train_df: pd.DataFrame, test_df: pd.DataFrame, service_name: str
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Fits a MinMaxScaler on the training split only, then transforms both splits.
+        This prevents test-set information from leaking into the scaler.
+        """
+        numeric_train = train_df.select_dtypes(include=[np.number])
+        numeric_test = test_df.select_dtypes(include=[np.number])
+
+        scaler = MinMaxScaler(clip=True)
+        scaler.fit(numeric_train)
+        self.scalers[service_name] = scaler
+
+        train_scaled = scaler.transform(numeric_train)
+        test_scaled = scaler.transform(numeric_test)
+
+        train_normalized = pd.DataFrame(
+            train_scaled, columns=numeric_train.columns, index=train_df.index
+        )
+        test_normalized = pd.DataFrame(
+            test_scaled, columns=numeric_test.columns, index=test_df.index
+        )
+        return train_normalized, test_normalized
 
     def _create_windows(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         target_indices = df.columns.get_indexer(pd.Index(self.target_columns))
-        missing_cols = [col for col, idx in zip(self.target_columns, target_indices, strict=True) if idx == -1]
+        missing_cols = [
+            col for col, idx in zip(self.target_columns, target_indices, strict=True) if idx == -1
+        ]
         if missing_cols:
             raise ValueError(
                 f"Target columns not found in data: {missing_cols}. "

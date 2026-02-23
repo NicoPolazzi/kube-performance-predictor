@@ -62,6 +62,36 @@ class KubernetesClient:
         )
         _wait_for_patch_completion(patched_deployment, self.apps_api_istance)
 
+    def get_cpu_requests(self) -> dict[str, float]:
+        """
+        get_cpu_requests retrieves the CPU request (in cores) for each deployment in the default namespace.
+
+        Returns a dict mapping service name to CPU request in cores.
+        Values like "500m" are converted to 0.5; values like "1" are returned as 1.0.
+        """
+        deployments = self.apps_api_istance.list_namespaced_deployment(
+            namespace=DEFAULT_NAMESPACE
+        )
+        cpu_requests: dict[str, float] = {}
+
+        for deployment in deployments.items:
+            name = deployment.metadata.labels.get(APP_LABEL)
+            if name is None or name == LOADGENERATOR_NAME:
+                continue
+
+            containers = deployment.spec.template.spec.containers
+            total_cpu = 0.0
+            for container in containers:
+                if container.resources and container.resources.requests:
+                    raw = container.resources.requests.get("cpu", "0")
+                    total_cpu += _parse_cpu(raw)
+
+            if total_cpu > 0:
+                cpu_requests[name] = total_cpu
+
+        logger.debug(f"CPU requests per service: {cpu_requests}")
+        return cpu_requests
+
     def stop_loadgenerator(self) -> None:
         """
         Scales the loadgenerator deployment to 0 replicas to stop traffic generation.
@@ -76,6 +106,14 @@ class KubernetesClient:
             logger.info("Load generator stopped successfully.")
         except client.ApiException as e:
             logger.error(f"Failed to stop load generator: {e}")
+
+
+def _parse_cpu(raw: str) -> float:
+    """Converts a Kubernetes CPU string to float cores. E.g. '500m' -> 0.5, '1' -> 1.0."""
+    raw = raw.strip()
+    if raw.endswith("m"):
+        return int(raw[:-1]) / 1000.0
+    return float(raw)
 
 
 def _patch_deployment(name: str, user_count: str, api: client.AppsV1Api) -> client.V1Deployment:
