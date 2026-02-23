@@ -89,23 +89,23 @@ def evaluate_and_plot(
         ax = axes[i]
         target_idx = target_indices[i]
 
-        mean_pred = []
-        std_pred = []
-        mean_true = []
-        std_true = []
+        mean_pred_list: list[float] = []
+        std_pred_list: list[float] = []
+        mean_true_list: list[float] = []
+        std_true_list: list[float] = []
 
         for u in unique_users:
             mask = user_counts_int == u
-            mean_pred.append(real_predictions[mask, target_idx].mean())
-            std_pred.append(real_predictions[mask, target_idx].std())
-            mean_true.append(real_targets[mask, target_idx].mean())
-            std_true.append(real_targets[mask, target_idx].std())
+            mean_pred_list.append(real_predictions[mask, target_idx].mean())
+            std_pred_list.append(real_predictions[mask, target_idx].std())
+            mean_true_list.append(real_targets[mask, target_idx].mean())
+            std_true_list.append(real_targets[mask, target_idx].std())
 
         x = np.array(unique_users)
-        mean_pred = np.array(mean_pred)
-        std_pred = np.array(std_pred)
-        mean_true = np.array(mean_true)
-        std_true = np.array(std_true)
+        mean_pred = np.array(mean_pred_list)
+        std_pred = np.array(std_pred_list)
+        mean_true = np.array(mean_true_list)
+        std_true = np.array(std_true_list)
 
         ax.plot(x, mean_true, label="Ground Truth", color="blue", linewidth=2)
         ax.fill_between(x, mean_true - std_true, mean_true + std_true, color="blue", alpha=0.15)

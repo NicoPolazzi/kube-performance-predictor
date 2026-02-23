@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from kpp.logging_config import setup_logging
 from kpp.predictor.config import config
-from kpp.predictor.model import PerformancesGRU
+from kpp.predictor.model import LinearBaseline, PerformancesGRU
 from kpp.predictor.pipeline import PerformancesDataPipeline
 from kpp.predictor.visualizer import evaluate_and_plot
 
@@ -132,6 +132,74 @@ def train_model(
     logger.info(f"Training complete. Best model weights are maintained at: {model_path}")
 
 
+def train_baseline(
+    service_name: str,
+    model: LinearBaseline,
+    train_loader: DataLoader,
+    test_loader: DataLoader,
+    epochs: int = 50,
+    learning_rate: float = 0.001,
+) -> None:
+    """Trains a LinearBaseline model and saves best weights."""
+    out_dir = Path("models")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model_path = out_dir / f"linear_{service_name}.pth"
+    config_path = out_dir / f"linear_config_{service_name}.json"
+
+    best_test_loss = float("inf")
+
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    for epoch in range(epochs):
+        train_loss = 0.0
+        test_loss = 0.0
+        train_total_samples = 0
+        test_total_samples = 0
+
+        model.train()
+        for batch_X, batch_y in train_loader:
+            optimizer.zero_grad()
+            predictions = model(batch_X)
+            loss = criterion(predictions, batch_y)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item() * batch_X.size(0)
+            train_total_samples += batch_X.size(0)
+
+        if train_total_samples == 0:
+            raise RuntimeError(f"No training samples found for {service_name}.")
+        train_loss /= train_total_samples
+
+        model.eval()
+        with torch.no_grad():
+            for batch_X, batch_y in test_loader:
+                predictions = model(batch_X)
+                loss = criterion(predictions, batch_y)
+                test_loss += loss.item() * batch_X.size(0)
+                test_total_samples += batch_X.size(0)
+
+        if test_total_samples == 0:
+            raise RuntimeError(f"No test samples found for {service_name}.")
+        test_loss /= test_total_samples
+
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
+            torch.save(model.state_dict(), model_path)
+            with open(config_path, "w") as f:
+                json.dump({"service": service_name, "best_test_loss": best_test_loss}, f, indent=4)
+
+        train_rmse = np.sqrt(train_loss)
+        test_rmse = np.sqrt(test_loss)
+
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            logger.info(
+                f"[Baseline] Epoch [{epoch + 1}/{epochs}] | Train RMSE: {train_rmse:.4f} | Test RMSE: {test_rmse:.4f}"
+            )
+
+    logger.info(f"Baseline training complete. Best weights saved to: {model_path}")
+
+
 def main() -> None:
     setup_logging("predictor")
 
@@ -187,6 +255,7 @@ def main() -> None:
             output_size=output_size,
             num_layers=config.model.num_layers,
             dropout=config.model.dropout,
+            use_attention=config.model.use_attention,
         )
 
         train_model(
@@ -221,6 +290,17 @@ def main() -> None:
             target_columns=target_cols,
             service_name=service_name,
             feature_names=all_features,
+        )
+
+        logger.info(f"Training LinearBaseline for {service_name}...")
+        baseline = LinearBaseline(input_size=input_size, output_size=output_size)
+        train_baseline(
+            service_name,
+            baseline,
+            train_loader,
+            test_loader,
+            epochs=config.training.epochs,
+            learning_rate=config.training.learning_rate,
         )
 
 

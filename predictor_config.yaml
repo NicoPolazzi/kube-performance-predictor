@@ -7,9 +7,10 @@ model:
   hidden_size: 64
   num_layers: 2
   dropout: 0.3
+  use_attention: true
 
 training:
-  epochs: 200
+  epochs: 300
   learning_rate: 0.001
   batch_size: 32
 

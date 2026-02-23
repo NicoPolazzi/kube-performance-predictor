@@ -18,6 +18,7 @@ class ModelConfig:
     hidden_size: int
     num_layers: int
     dropout: float
+    use_attention: bool
 
 
 @dataclass(frozen=True)
