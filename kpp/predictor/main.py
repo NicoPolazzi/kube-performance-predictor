@@ -150,8 +150,8 @@ def main() -> None:
     pipeline = PerformancesDataPipeline(config.pipeline.sequence_length, target_cols)
     datasets = pipeline.run(
         csv_path,
-        train_cpu_lower_percentile=config.pipeline.train_cpu_lower_percentile,
-        train_cpu_upper_percentile=config.pipeline.train_cpu_upper_percentile,
+        train_lower_percentile=config.pipeline.train_lower_percentile,
+        train_upper_percentile=config.pipeline.train_upper_percentile,
     )
 
     # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
@@ -159,7 +159,7 @@ def main() -> None:
         col
         for col in PerformancesDataPipeline.REQUIRED_COLUMNS
         if col not in ("Timestamp", "Service")
-    ]
+    ] + PerformancesDataPipeline.DELTA_COLUMNS
 
     for service_name, data_split in datasets.items():
         logger.info(f"--- Service: {service_name} ---")

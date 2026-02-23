@@ -17,7 +17,7 @@ class PerformancesDataPipeline:
     Flow:
     1. Load CSV & Fix Timestamps (Aggregation)
     2. Split by Microservice
-    3. CPU-Percentage Split -> Train: [min%, max%] utilisation; Test: outside that range
+    3. Throughput-Percentile Split -> Train: [min, max] req/s; Test: outside that range
     4. Normalize (Per Service, fit on train only) -> Stores Scalers for later inversion
     5. Windowing -> Creates (X, y) tensors for ML training
     """
@@ -32,6 +32,8 @@ class PerformancesDataPipeline:
         "CPU Usage %",
     ]
 
+    DELTA_COLUMNS = ["Δ CPU Usage %", "Δ User Count", "Δ Throughput (req/s)"]
+
     def __init__(self, sequence_length: int, target_columns: List[str]):
         self.sequence_length = sequence_length
         self.target_columns = target_columns
@@ -40,8 +42,8 @@ class PerformancesDataPipeline:
     def run(
         self,
         csv_path: str,
-        train_cpu_lower_percentile: float = 0.20,
-        train_cpu_upper_percentile: float = 0.80,
+        train_lower_percentile: float = 0.15,
+        train_upper_percentile: float = 0.85,
     ) -> ServiceDatasets:
         """
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
@@ -53,19 +55,20 @@ class PerformancesDataPipeline:
                 "backend": ...
             }
 
-        Split strategy: samples within the per-service CPU percentile range
-        [train_cpu_lower_percentile, train_cpu_upper_percentile] go to train; samples outside
+        Split strategy: samples within the per-service throughput percentile range
+        [train_lower_percentile, train_upper_percentile] go to train; samples outside
         that range go to test. Percentiles are computed per service, so each service gets a
-        balanced split regardless of its absolute CPU level. The scaler is fit exclusively on
-        the training split to avoid data leakage.
+        balanced split regardless of its absolute throughput level. The scaler is fit exclusively
+        on the training split to avoid data leakage.
         """
         df = self._load_data(csv_path)
         service_dfs = self._split_by_service(df)
         processed_datasets = {}
 
         for service_name, service_df in service_dfs.items():
-            train_raw, test_raw = self._cpu_percentage_split(
-                service_df, train_cpu_lower_percentile, train_cpu_upper_percentile, service_name
+            service_df = self._add_delta_features(service_df)
+            train_raw, test_raw = self._throughput_percentile_split(
+                service_df, train_lower_percentile, train_upper_percentile, service_name
             )
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
             X_train, y_train = self._create_windows(train_df)
@@ -110,7 +113,14 @@ class PerformancesDataPipeline:
     def _split_by_service(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         return {str(service): group.copy() for service, group in df.groupby("Service")}
 
-    def _cpu_percentage_split(
+    def _add_delta_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["Δ CPU Usage %"] = df["CPU Usage %"].diff().fillna(0)
+        df["Δ User Count"] = df["User Count"].diff().fillna(0)
+        df["Δ Throughput (req/s)"] = df["Throughput (req/s)"].diff().fillna(0)
+        return df
+
+    def _throughput_percentile_split(
         self,
         df: pd.DataFrame,
         lower_percentile: float,
@@ -118,36 +128,36 @@ class PerformancesDataPipeline:
         service_name: str,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Splits the raw (un-normalized) dataframe by per-service CPU percentile boundaries.
+        Splits the raw (un-normalized) dataframe by per-service throughput percentile boundaries.
 
-        The lower and upper CPU thresholds are computed from this service's own distribution,
-        so each service gets a balanced split regardless of its absolute CPU level. Samples
+        The lower and upper throughput thresholds are computed from this service's own distribution,
+        so each service gets a balanced split regardless of its absolute throughput level. Samples
         within [p_lower, p_upper] go to train; samples outside go to test.
         """
-        cpu_pct = df["CPU Usage %"]
-        min_pct = cpu_pct.quantile(lower_percentile)
-        max_pct = cpu_pct.quantile(upper_percentile)
-        train_mask = (cpu_pct >= min_pct) & (cpu_pct <= max_pct)
+        throughput = df["Throughput (req/s)"]
+        min_val = throughput.quantile(lower_percentile)
+        max_val = throughput.quantile(upper_percentile)
+        train_mask = (throughput >= min_val) & (throughput <= max_val)
 
         train_df = df[train_mask].copy()
         test_df = df[~train_mask].copy()
 
         logger.info(
-            f"[{service_name}] CPU-percentile split "
+            f"[{service_name}] Throughput-percentile split "
             f"(p{lower_percentile * 100:.0f}–p{upper_percentile * 100:.0f}): "
-            f"{train_mask.sum()} train ({min_pct * 100:.1f}%–{max_pct * 100:.1f}% CPU), "
+            f"{train_mask.sum()} train ({min_val:.2f}–{max_val:.2f} req/s), "
             f"{(~train_mask).sum()} test."
         )
 
         if len(train_df) == 0:
             raise ValueError(
-                f"[{service_name}] No training samples found in the CPU percentile range "
+                f"[{service_name}] No training samples found in the throughput percentile range "
                 f"[p{lower_percentile * 100:.0f}, p{upper_percentile * 100:.0f}]. "
-                f"Adjust train_cpu_lower_percentile / train_cpu_upper_percentile."
+                f"Adjust train_lower_percentile / train_upper_percentile."
             )
         if len(test_df) == 0:
             logger.warning(
-                f"[{service_name}] No test samples outside the CPU percentile range. "
+                f"[{service_name}] No test samples outside the throughput percentile range. "
                 "The evaluation will not measure out-of-distribution generalisation."
             )
 

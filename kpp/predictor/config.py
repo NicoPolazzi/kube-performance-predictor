@@ -9,8 +9,8 @@ _CONFIG_PATH = Path(__file__).parent.parent.parent / "predictor_config.yaml"
 @dataclass(frozen=True)
 class PipelineConfig:
     sequence_length: int
-    train_cpu_lower_percentile: float
-    train_cpu_upper_percentile: float
+    train_lower_percentile: float
+    train_upper_percentile: float
 
 
 @dataclass(frozen=True)

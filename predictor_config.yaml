@@ -1,7 +1,7 @@
 pipeline:
   sequence_length: 5
-  train_cpu_lower_percentile: 0.10
-  train_cpu_upper_percentile: 0.90
+  train_lower_percentile: 0.15
+  train_upper_percentile: 0.85
 
 model:
   hidden_size: 64
@@ -9,11 +9,11 @@ model:
   dropout: 0.3
 
 training:
-  epochs: 100
+  epochs: 200
   learning_rate: 0.001
   batch_size: 32
 
 scheduler:
   factor: 0.5
-  patience: 20
+  patience: 30
   min_lr: 0.000001
