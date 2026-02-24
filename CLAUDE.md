@@ -47,17 +47,17 @@ Connects to a live Kubernetes cluster, scales load via the loadgenerator deploym
 - `config.py` — Loads `.env` into a frozen `Config` dataclass
 
 ### 2. ML Training & Prediction (`kpp/predictor/`)
-Loads collected CSV data, normalizes per service, trains a GRU model for each microservice, and saves models/plots.
+Loads collected CSV data, normalizes per service, trains a linear model for each microservice, and saves models/plots.
 
-- `main.py` — Training loop: creates sequence windows (length 5), 80/20 train/test split, Adam + ReduceLROnPlateau, saves best model weights to `models/`
-- `pipeline.py` — `PerformancesDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, normalizes with per-service `MinMaxScaler`, stratifies split by user count
-- `model.py` — `PerformancesGRU`: 2-layer GRU (input=4, hidden=64) → linear output
+- `main.py` — Training loop: creates sequence windows (length 5), throughput-percentile train/test split, Adam + ReduceLROnPlateau, saves best model weights to `models/`
+- `pipeline.py` — `PerformanceDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, normalizes with per-service `MinMaxScaler`, stratifies split by throughput percentile
+- `model.py` — `PerformanceModel`: linear (input → hidden → output) with ReLU activation; flattens the full sequence window before the linear layers
 - `visualizer.py` — Runs inference on test set, inverts scaling, plots ground truth vs predictions to `plots/`
 - `generate_table.py` — Reads `models/config_{service}.json` and prints RMSE markdown table
 
 ### Data & Model Storage
 - `dataset/` — Pre-collected CSV files (used as input to predictor)
-- `models/` — Output: `gru_{service}.pth` weights + `config_{service}.json` (hyperparams, best_test_loss)
+- `models/` — Output: `{service}.pth` weights + `config_{service}.json` (hyperparams, best_test_loss)
 - `plots/` — Output: `{service}_predictions.png` prediction visualizations
 
 ### Key Design Decisions

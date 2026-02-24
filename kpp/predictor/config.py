@@ -16,9 +16,6 @@ class PipelineConfig:
 @dataclass(frozen=True)
 class ModelConfig:
     hidden_size: int
-    num_layers: int
-    dropout: float
-    use_attention: bool
 
 
 @dataclass(frozen=True)
@@ -26,6 +23,7 @@ class TrainingConfig:
     epochs: int
     learning_rate: float
     batch_size: int
+    weight_decay: float
 
 
 @dataclass(frozen=True)

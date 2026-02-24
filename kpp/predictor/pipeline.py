@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 ServiceDatasets: TypeAlias = Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]
 
 
-class PerformancesDataPipeline:
+class PerformanceDataPipeline:
     """
     A robust pipeline for processing Kubernetes telemetry data.
 
@@ -29,10 +29,10 @@ class PerformancesDataPipeline:
         "Response Time (s)",
         "Throughput (req/s)",
         "CPU Usage",
-        "CPU Usage %",
+        # "CPU Usage %",
     ]
 
-    DELTA_COLUMNS = ["Δ CPU Usage %", "Δ User Count", "Δ Throughput (req/s)"]
+    DELTA_COLUMNS = ["Δ User Count", "Δ Throughput (req/s)"]
 
     def __init__(self, sequence_length: int, target_columns: List[str]):
         self.sequence_length = sequence_length
@@ -115,7 +115,7 @@ class PerformancesDataPipeline:
 
     def _add_delta_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        df["Δ CPU Usage %"] = df["CPU Usage %"].diff().fillna(0)
+        # df["Δ CPU Usage %"] = df["CPU Usage %"].diff().fillna(0)
         df["Δ User Count"] = df["User Count"].diff().fillna(0)
         df["Δ Throughput (req/s)"] = df["Throughput (req/s)"].diff().fillna(0)
         return df
@@ -173,7 +173,7 @@ class PerformancesDataPipeline:
         numeric_train = train_df.select_dtypes(include=[np.number])
         numeric_test = test_df.select_dtypes(include=[np.number])
 
-        scaler = MinMaxScaler(clip=True)
+        scaler = MinMaxScaler()
         scaler.fit(numeric_train)
         self.scalers[service_name] = scaler
 

@@ -4,17 +4,15 @@ pipeline:
   train_upper_percentile: 0.85
 
 model:
-  hidden_size: 64
-  num_layers: 2
-  dropout: 0.3
-  use_attention: true
+  hidden_size: 32
 
 training:
-  epochs: 300
+  epochs: 200
   learning_rate: 0.001
   batch_size: 32
+  weight_decay: 0.001
 
 scheduler:
   factor: 0.5
-  patience: 30
+  patience: 40
   min_lr: 0.000001

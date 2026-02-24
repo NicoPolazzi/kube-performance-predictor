@@ -50,33 +50,8 @@ def generate_rmse_table(models_dir: str = "models") -> None:
         logger.error(f"The directory '{models_dir}' does not exist.")
         return
 
-    gru_results = _load_results(models_path, "config_*.json")
-    baseline_results = _load_results(models_path, "linear_config_*.json")
-
-    _print_table("GRU+Attention Performance by Microservice", gru_results)
-    _print_table("LinearBaseline Performance by Microservice", baseline_results)
-
-    if gru_results and baseline_results:
-        gru_by_service = {s: rmse for s, rmse, _ in gru_results}
-        baseline_by_service = {s: rmse for s, rmse, _ in baseline_results}
-        shared = sorted(set(gru_by_service) & set(baseline_by_service))
-
-        if shared:
-            service_col_width = max(len("Microservice"), max(len(s) for s in shared))
-            print("\n### GRU+Attention vs LinearBaseline Comparison\n")
-            print(
-                f"| {'Microservice':<{service_col_width}} | GRU+Attn RMSE | Linear RMSE | Winner       |"
-            )
-            print(
-                f"|{'-' * (service_col_width + 2)}|---------------|-------------|--------------|"
-            )
-            for service in shared:
-                gru_rmse = gru_by_service[service]
-                lin_rmse = baseline_by_service[service]
-                winner = "GRU+Attn" if gru_rmse <= lin_rmse else "Linear"
-                print(
-                    f"| {service:<{service_col_width}} | {gru_rmse:.4f}        | {lin_rmse:.4f}      | {winner:<12} |"
-                )
+    results = _load_results(models_path, "config_*.json")
+    _print_table("PerformanceModel Results by Microservice", results)
 
 
 if __name__ == "__main__":

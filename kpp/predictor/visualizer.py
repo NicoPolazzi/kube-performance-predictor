@@ -110,10 +110,11 @@ def evaluate_and_plot(
         ax.plot(x, mean_true, label="Ground Truth", color="blue", linewidth=2)
         ax.fill_between(x, mean_true - std_true, mean_true + std_true, color="blue", alpha=0.15)
 
-        ax.plot(x, mean_pred, label="GRU Prediction", color="red", linestyle="--", linewidth=2)
-        ax.fill_between(x, mean_pred - std_pred, mean_pred + std_pred, color="red", alpha=0.15)
+        ax.plot(x, mean_pred, label="Linear", color="green", linewidth=2)
+        ax.fill_between(x, mean_pred - std_pred, mean_pred + std_pred, color="green", alpha=0.15)
 
-        ax.set_title(f"{service_name} - {col_name}")
+        rmse = np.sqrt(np.mean((real_predictions[:, target_idx] - real_targets[:, target_idx]) ** 2))
+        ax.set_title(f"{service_name} - {col_name}  |  RMSE: {rmse:.4f}")
         ax.set_ylabel(col_name)
         ax.legend()
         ax.grid(True, alpha=0.3)
@@ -125,5 +126,6 @@ def evaluate_and_plot(
     output_dir.mkdir(parents=True, exist_ok=True)
     file_path = output_dir / f"{service_name}_predictions.png"
     plt.savefig(file_path)
+    plt.close()
 
     logger.info(f"Saved plot for {service_name} at {file_path}")
