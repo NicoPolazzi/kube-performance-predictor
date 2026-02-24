@@ -14,3 +14,7 @@ models/
 
 # Exclude environment variables
 .env
+
+# Exclude test coverage artifacts
+.coverage
+coverage.xml

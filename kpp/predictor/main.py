@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
+from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
-from kpp.predictor.config import config
 from kpp.predictor.model import PerformanceModel
 from kpp.predictor.pipeline import PerformanceDataPipeline
 from kpp.predictor.visualizer import evaluate_and_plot
@@ -18,6 +18,7 @@ logger = logging.getLogger("predictor")
 
 
 def train_model(
+    config: PredictorConfig,
     service_name: str,
     model: PerformanceModel,
     train_loader: DataLoader,
@@ -106,6 +107,7 @@ def train_model(
 
 def main() -> None:
     setup_logging("predictor")
+    config = PredictorConfig.from_yaml()
 
     csv_path = "dataset/performance_results_medium.csv"
     if not Path(csv_path).exists():
@@ -160,6 +162,7 @@ def main() -> None:
             hidden_size=config.model.hidden_size,
         )
         train_model(
+            config,
             service_name,
             model,
             train_loader,

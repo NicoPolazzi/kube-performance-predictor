@@ -1,11 +1,13 @@
 import time
 
-from config import config
-from csv_writer import CsvWriter
-from kubernetes_client import KubernetesClient
-from prometheus_client import PrometheusClient
-from sample import PerformanceSample
+from kubernetes import client, config as kube_config
+from kpp.collector.csv_writer import CsvWriter
+from kpp.collector.kubernetes_client import KubernetesClient
+from kpp.collector.prometheus_client import PrometheusClient
+from kpp.collector.sample import PerformanceSample
+from prometheus_api_client import PrometheusConnect
 
+from kpp.config import CollectorConfig
 from kpp.logging_config import setup_logging
 
 COOLDOWN_SECONDS = 180
@@ -14,9 +16,11 @@ logger = setup_logging("collector", log_file="app.log")
 
 
 def main():
+    config = CollectorConfig.from_env()
     writer = CsvWriter()
-    prom_client = PrometheusClient(config.prometheus_url)
-    kube_client = KubernetesClient()
+    prom_client = PrometheusClient(PrometheusConnect(url=config.prometheus_url, disable_ssl=True))
+    kube_config.load_kube_config()
+    kube_client = KubernetesClient(core_api=client.CoreV1Api(), apps_api=client.AppsV1Api())
     service_names = kube_client.get_services_names()
     cpu_requests = kube_client.get_cpu_requests()
 
@@ -25,6 +29,7 @@ def main():
             logger.info(f"Starting test for {user_count} users...")
             kube_client.change_performance_test_load(str(user_count))
             _collect_data_samples(
+                config=config,
                 service_names=service_names,
                 client=prom_client,
                 writer=writer,
@@ -43,6 +48,7 @@ def main():
 
 
 def _collect_data_samples(
+    config: CollectorConfig,
     service_names: set[str],
     client: PrometheusClient,
     writer: CsvWriter,

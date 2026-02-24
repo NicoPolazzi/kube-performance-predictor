@@ -3,36 +3,36 @@ import logging
 import time
 from pathlib import Path
 
-from sample import PerformanceSample
+from kpp.collector.sample import PerformanceSample
 
 logger = logging.getLogger(__name__)
 
-DATASET_DIR = Path(__file__).parent.parent.parent / "dataset"
+HEADERS = [
+    "Timestamp",
+    "Service",
+    "User Count",
+    "Response Time (s)",
+    "Throughput (req/s)",
+    "CPU Usage",
+    "CPU Usage %",
+]
+
+_DEFAULT_DATASET_DIR = Path(__file__).parent.parent.parent / "dataset"
 
 
 class CsvWriter:
     filename: Path
 
-    def __init__(self) -> None:
+    def __init__(self, dataset_dir: Path = _DEFAULT_DATASET_DIR) -> None:
         """Creates the file using a timestamp in the name and writes the header."""
-        DATASET_DIR.mkdir(parents=True, exist_ok=True)
-        self.filename = DATASET_DIR / f"performance_results_{time.strftime('%Y%m%d-%H%M%S')}.csv"
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        self.filename = dataset_dir / f"performance_results_{time.strftime('%Y%m%d-%H%M%S')}.csv"
         self._initialize_file()
 
     def _initialize_file(self) -> None:
-        headers = [
-            "Timestamp",
-            "Service",
-            "User Count",
-            "Response Time (s)",
-            "Throughput (req/s)",
-            "CPU Usage",
-            "CPU Usage %",
-        ]
-
         with open(self.filename, mode="a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(headers)
+            writer.writerow(HEADERS)
 
     def write_samples(
         self, samples: list[PerformanceSample], user_count: int, timestamp: float
@@ -52,7 +52,7 @@ class CsvWriter:
                     sample.response_time,
                     sample.throughput,
                     sample.cpu_usage,
-                    sample.cpu_usage / sample.cpu_request if sample.cpu_request else 0.0,
+                    sample.cpu_usage / sample.cpu_request,
                 ]
                 for sample in samples
             ]

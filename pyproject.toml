@@ -26,6 +26,9 @@ dev = [
     "mypy (>=1.19.1,<2.0.0)",
     "pandas-stubs (>=3.0.0.260204,<4.0.0.0)",
     "types-pyyaml (>=6.0.12.20250915,<7.0.0.0)",
+    "pytest (>=8.0,<9.0)",
+    "pytest-cov (>=6.0,<7.0)",
+    "pytest-mock (>=3.14,<4.0)",
 ]
 
 [build-system]
@@ -61,3 +64,10 @@ unfixable = ["B"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=kpp --cov-report=term-missing --cov-report=xml"
+
+[tool.coverage.run]
+omit = ["kpp/config.py", "kpp/**/__init__.py", "kpp/collector/sample.py"]
