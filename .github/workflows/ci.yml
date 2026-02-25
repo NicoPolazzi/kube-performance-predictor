@@ -11,7 +11,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 0   # Full history for SonarQube blame analysis
+        fetch-depth: 0   # Full history for SonarQube analysis
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -37,7 +37,7 @@ jobs:
 
     - name: Install Dependencies
       run:  |
-        poetry lock --check
+        poetry check --lock
         poetry install --no-interaction
 
     - name: Run Linters
@@ -47,7 +47,7 @@ jobs:
       run: poetry run mypy .
 
     - name: Run Tests
-      run: poetry run pytest         # Outputs coverage.xml via addopts in pyproject.toml
+      run: poetry run pytest
 
     - name: SonarCloud Scan
       uses: SonarSource/sonarqube-scan-action@v5
