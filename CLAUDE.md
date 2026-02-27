@@ -43,11 +43,9 @@ Connects to a live Kubernetes cluster, scales load via the loadgenerator deploym
 ### 2. ML Training & Prediction (`kpp/predictor/`)
 Loads collected CSV data, normalizes per service, trains a linear model for each microservice, and saves models/plots.
 
-- `main.py` — Training loop: creates sequence windows, throughput-percentile train/test split, Adam + ReduceLROnPlateau, saves best model weights to `models/`
+- `main.py` — Orchestration: runs the training loop, calls `evaluate()`+`plot()` per service, prints the RMSE table via `generate_rmse_table()`; also owns `plot()`, `_load_results()`, `_print_table()`, `generate_rmse_table()`
 - `pipeline.py` — `PerformanceDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, normalizes with per-service `MinMaxScaler`, stratifies split by throughput percentile
-- `model.py` — `PerformanceModel`: linear (input → hidden → output) with ReLU activation; flattens the full sequence window before the linear layers
-- `visualizer.py` — Runs inference on test set, inverts scaling, plots ground truth vs predictions to `plots/`
-- `generate_table.py` — Reads `models/config_{service}.json` and prints RMSE markdown table
+- `model.py` — `PerformanceModel` (linear input → hidden → output with ReLU); `train_model()` (Adam + ReduceLROnPlateau, saves best weights to `models/`); `evaluate()` (inference on test set, inverts scaling, returns predictions/targets/user counts)
 
 ### Shared
 - `kpp/config.py` — Frozen dataclasses for both phases: `CollectorConfig` (loads from `.env`) and `PredictorConfig` (loads from `predictor_config.yaml`)

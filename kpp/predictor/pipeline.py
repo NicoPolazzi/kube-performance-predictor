@@ -3,11 +3,13 @@ from typing import Dict, List, Tuple, TypeAlias
 
 import numpy as np
 import pandas as pd
+import torch
 from sklearn.preprocessing import MinMaxScaler
+from torch.utils.data import TensorDataset
 
 logger = logging.getLogger(__name__)
 
-ServiceDatasets: TypeAlias = Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]]
+ServiceDatasets: TypeAlias = Dict[str, Dict[str, TensorDataset]]
 
 
 class PerformanceDataPipeline:
@@ -49,8 +51,8 @@ class PerformanceDataPipeline:
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
             {
                 "frontend": {
-                    "train": (X_train, y_train),
-                    "test":  (X_test, y_test)
+                    "train": TensorDataset(X_train, y_train),
+                    "test":  TensorDataset(X_test, y_test)
                 },
                 "backend": ...
             }
@@ -74,8 +76,8 @@ class PerformanceDataPipeline:
             X_train, y_train = self._create_windows(train_df)
             X_test, y_test = self._create_windows(test_df)
             processed_datasets[service_name] = {
-                "train": (X_train, y_train),
-                "test": (X_test, y_test),
+                "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
+                "test":  TensorDataset(torch.from_numpy(X_test),  torch.from_numpy(y_test)),
             }
 
         return processed_datasets
@@ -115,7 +117,6 @@ class PerformanceDataPipeline:
 
     def _add_delta_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        # df["Δ CPU Usage %"] = df["CPU Usage %"].diff().fillna(0)
         df["Δ User Count"] = df["User Count"].diff().fillna(0)
         df["Δ Throughput (req/s)"] = df["Throughput (req/s)"].diff().fillna(0)
         return df
@@ -207,13 +208,13 @@ class PerformanceDataPipeline:
                 f"sequence_length={self.sequence_length}. Need at least {self.sequence_length + 1} rows."
             )
 
-        X_samples = []
+        x_samples = []
         y_samples = []
 
         for i in range(num_samples):
-            X_sample = data[i : i + self.sequence_length]
+            x_sample = data[i : i + self.sequence_length]
             y_sample = data[i + self.sequence_length, target_indices]
-            X_samples.append(X_sample)
+            x_samples.append(x_sample)
             y_samples.append(y_sample)
 
-        return np.array(X_samples), np.array(y_samples)
+        return np.array(x_samples), np.array(y_samples)

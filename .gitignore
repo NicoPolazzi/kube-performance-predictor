@@ -16,5 +16,7 @@ models/
 .env
 
 # Exclude test coverage artifacts
-.coverage
+.coverage*
 coverage.xml
+
+.DS_STORE

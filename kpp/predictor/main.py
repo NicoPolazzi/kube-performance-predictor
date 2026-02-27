@@ -2,107 +2,125 @@ import json
 import logging
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
 
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
-from kpp.predictor.model import PerformanceModel
+from kpp.predictor.model import PerformanceModel, evaluate, train_model
 from kpp.predictor.pipeline import PerformanceDataPipeline
-from kpp.predictor.visualizer import evaluate_and_plot
+from torch.utils.data import DataLoader
 
 logger = logging.getLogger("predictor")
 
 
-def train_model(
-    config: PredictorConfig,
+def plot(
+    real_predictions: np.ndarray,
+    real_targets: np.ndarray,
+    user_counts_int: np.ndarray,
+    target_columns: list[str],
+    target_indices: list[int],
     service_name: str,
-    model: PerformanceModel,
-    train_loader: DataLoader,
-    test_loader: DataLoader,
-    epochs: int = 50,
-    learning_rate: float = 0.001,
 ) -> None:
-    """Trains a PerformanceModel and saves best weights."""
-    out_dir = Path("models")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model_path = out_dir / f"{service_name}.pth"
-    config_path = out_dir / f"config_{service_name}.json"
+    """Creates and saves the predictions plot to plots/{service_name}_predictions.png."""
+    unique_users = sorted(np.unique(user_counts_int))
 
-    best_test_loss = float("inf")
+    num_targets = len(target_columns)
+    _, axes = plt.subplots(num_targets, 1, figsize=(12, 4 * num_targets), sharex=True)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=config.scheduler.factor,
-        patience=config.scheduler.patience,
-        min_lr=config.scheduler.min_lr,
-    )
+    if num_targets == 1:
+        axes = [axes]
 
-    for epoch in range(epochs):
-        train_loss = 0.0
-        test_loss = 0.0
-        train_total_samples = 0
-        test_total_samples = 0
+    for i, col_name in enumerate(target_columns):
+        ax = axes[i]
+        target_idx = target_indices[i]
 
-        model.train()
-        for batch_X, batch_y in train_loader:
-            optimizer.zero_grad()
-            predictions = model(batch_X)
-            loss = criterion(predictions, batch_y)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item() * batch_X.size(0)
-            train_total_samples += batch_X.size(0)
+        mean_pred_list: list[float] = []
+        std_pred_list: list[float] = []
+        mean_true_list: list[float] = []
+        std_true_list: list[float] = []
 
-        if train_total_samples == 0:
-            raise RuntimeError(f"No training samples found for {service_name}.")
-        train_loss /= train_total_samples
+        for u in unique_users:
+            mask = user_counts_int == u
+            mean_pred_list.append(real_predictions[mask, target_idx].mean())
+            std_pred_list.append(real_predictions[mask, target_idx].std())
+            mean_true_list.append(real_targets[mask, target_idx].mean())
+            std_true_list.append(real_targets[mask, target_idx].std())
 
-        model.eval()
-        with torch.no_grad():
-            for batch_X, batch_y in test_loader:
-                predictions = model(batch_X)
-                loss = criterion(predictions, batch_y)
-                test_loss += loss.item() * batch_X.size(0)
-                test_total_samples += batch_X.size(0)
+        x = np.array(unique_users)
+        mean_pred = np.array(mean_pred_list)
+        std_pred = np.array(std_pred_list)
+        mean_true = np.array(mean_true_list)
+        std_true = np.array(std_true_list)
 
-        if test_total_samples == 0:
-            raise RuntimeError(f"No test samples found for {service_name}.")
-        test_loss /= test_total_samples
+        ax.plot(x, mean_true, label="Ground Truth", color="blue", linewidth=2)
+        ax.fill_between(x, mean_true - std_true, mean_true + std_true, color="blue", alpha=0.15)
 
-        scheduler.step(test_loss)
+        ax.plot(x, mean_pred, label="Linear", color="green", linewidth=2)
+        ax.fill_between(x, mean_pred - std_pred, mean_pred + std_pred, color="green", alpha=0.15)
 
-        if test_loss < best_test_loss:
-            best_test_loss = test_loss
-            torch.save(model.state_dict(), model_path)
-            with open(config_path, "w") as f:
-                json.dump(
-                    {
-                        "service": service_name,
-                        "hidden_size": config.model.hidden_size,
-                        "best_test_loss": best_test_loss,
-                    },
-                    f,
-                    indent=4,
-                )
+        rmse = np.sqrt(np.mean((real_predictions[:, target_idx] - real_targets[:, target_idx]) ** 2))
+        ax.set_title(f"{service_name} - {col_name}  |  RMSE: {rmse:.4f}")
+        ax.set_ylabel(col_name)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
 
-        train_rmse = np.sqrt(train_loss)
-        test_rmse = np.sqrt(test_loss)
+    plt.xlabel("Concurrent Users")
+    plt.tight_layout()
 
-        current_lr = optimizer.param_groups[0]["lr"]
+    output_dir = Path("plots")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    file_path = output_dir / f"{service_name}_predictions.png"
+    plt.savefig(file_path)
+    plt.close()
 
-        if (epoch + 1) % 10 == 0 or epoch == 0:
-            logger.info(
-                f"Epoch [{epoch + 1}/{epochs}] | LR: {current_lr:.6f} | Train RMSE: {train_rmse:.4f} | Test RMSE: {test_rmse:.4f}"
-            )
+    logger.info(f"Saved plot for {service_name} at {file_path}")
 
-    logger.info(f"Training complete. Best model weights saved to: {model_path}")
+
+def _load_results(models_path: Path, glob_pattern: str) -> list[tuple[str, float, float]]:
+    results = []
+    for config_file in models_path.glob(glob_pattern):
+        with open(config_file, "r") as f:
+            try:
+                data = json.load(f)
+                service = data.get("service", config_file.stem)
+                best_mse = data.get("best_test_loss", None)
+                if best_mse is not None:
+                    best_rmse = np.sqrt(best_mse)
+                    results.append((service, best_rmse, best_rmse * 100))
+                else:
+                    logger.warning(f"No 'best_test_loss' found in {config_file.name}")
+            except json.JSONDecodeError:
+                logger.error(f"Error reading JSON from {config_file.name}")
+    results.sort(key=lambda x: x[0])
+    return results
+
+
+def _print_table(title: str, results: list[tuple[str, float, float]]) -> None:
+    if not results:
+        logger.warning(f"No valid results found for: {title}")
+        return
+
+    service_col_width = max(len("Microservice"), max(len(s) for s, _, _ in results))
+
+    print(f"\n### {title}\n")
+    print(f"| {'Microservice':<{service_col_width}} | Best Test RMSE | Error Margin |")
+    print(f"|{'-' * (service_col_width + 2)}|----------------|--------------|")
+
+    for service, rmse, pct in results:
+        print(f"| {service:<{service_col_width}} | {rmse:.4f}         | {pct:>5.2f}%       |")
+
+
+def generate_rmse_table(models_dir: str = "models") -> None:
+    models_path = Path(models_dir)
+
+    if not models_path.exists():
+        logger.error(f"The directory '{models_dir}' does not exist.")
+        return
+
+    results = _load_results(models_path, "config_*.json")
+    _print_table("PerformanceModel Results by Microservice", results)
 
 
 def main() -> None:
@@ -138,22 +156,19 @@ def main() -> None:
     for service_name, data_split in datasets.items():
         logger.info(f"--- Service: {service_name} ---")
 
-        X_train, y_train = data_split["train"]
-        X_test, y_test = data_split["test"]
+        train_dataset = data_split["train"]
+        test_dataset = data_split["test"]
 
-        logger.info(f"Train Shape: {X_train.shape} (Samples, Window, Features)")
-        logger.info(f"Test Shape:  {X_test.shape}")
-
-        train_dataset = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
-        test_dataset = TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test))
+        logger.info(f"Train Shape: {train_dataset.tensors[0].shape} (Samples, Window, Features)")
+        logger.info(f"Test Shape:  {test_dataset.tensors[0].shape}")
 
         train_loader = DataLoader(
             train_dataset, batch_size=config.training.batch_size, shuffle=True
         )
         test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False)
 
-        output_size = y_train.shape[1]
-        flat_input_size = X_train.shape[1] * X_train.shape[2]
+        output_size = train_dataset.tensors[1].shape[1]
+        flat_input_size = train_dataset.tensors[0].shape[1] * train_dataset.tensors[0].shape[2]
 
         logger.info(f"Training PerformanceModel for {service_name}...")
         model = PerformanceModel(
@@ -187,14 +202,26 @@ def main() -> None:
             logger.warning(f"No scaler found for {service_name}. Skipping evaluation.")
             continue
 
-        evaluate_and_plot(
+        real_predictions, real_targets, user_counts_int = evaluate(
             model=model,
             test_loader=test_loader,
             scaler=service_scaler,
             target_columns=target_cols,
-            service_name=service_name,
             feature_names=all_features,
         )
+
+        target_indices = [all_features.index(col) for col in target_cols]
+
+        plot(
+            real_predictions=real_predictions,
+            real_targets=real_targets,
+            user_counts_int=user_counts_int,
+            target_columns=target_cols,
+            target_indices=target_indices,
+            service_name=service_name,
+        )
+
+    generate_rmse_table()
 
 
 if __name__ == "__main__":

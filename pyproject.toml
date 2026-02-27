@@ -70,4 +70,4 @@ testpaths = ["tests"]
 addopts = "--cov=kpp --cov-report=term-missing --cov-report=xml"
 
 [tool.coverage.run]
-omit = ["kpp/config.py", "kpp/**/__init__.py", "kpp/collector/sample.py"]
+omit = ["kpp/config.py", "kpp/**/__init__.py", "kpp/collector/sample.py", "kpp/logging_config.py", "kpp/predictor/main.py"]

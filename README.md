@@ -6,6 +6,7 @@ This project represents my Master's thesis in Sofware: Science and Technology at
 
 Ensure that you have the following tools installed:
 * [Poetry](https://python-poetry.org/)
+* [kubectl](https://kubernetes.io/releases/download/)
 * [Minikube](https://minikube.sigs.k8s.io/docs/start/)
 * [Istioctl](https://istio.io/latest/docs/setup/getting-started/)
 * [Kustomize](https://github.com/kubernetes-sigs/kustomize)
@@ -38,7 +39,7 @@ kubectl label namespace default istio-injection=enabled
 **Important**: The minimal profile does not include Prometheus by default. Install it manually to enable metrics collection:
 
 ```shell
-kubectl apply -f [https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml](https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml)
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml
 ```
 
 ### Install Gateway API CRDs

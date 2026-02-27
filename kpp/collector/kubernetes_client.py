@@ -19,7 +19,7 @@ class KubernetesClient:
     Two separate API groups are required because Kubernetes splits its API surface by resource kind:
 
     - CoreV1Api  — pod-level resources (used by get_services_names to list running pods)
-    - AppsV1Api  — deployment-level resources (used by get_cpu_requests, stop_loadgenerator,
+    - AppsV1Api  — deployment-level resources (used by get_cpu_requests, stop_load_generation,
                    and change_performance_test_load to read and patch Deployments)
     """
 
@@ -70,6 +70,7 @@ class KubernetesClient:
     def _wait_for_patch_completion(
         self, patched_deployment: client.V1Deployment, api: client.AppsV1Api
     ) -> None:
+        deployment_name = patched_deployment.metadata.name
         target_generation = patched_deployment.metadata.generation
         timeout_seconds = PATCH_TIMEOUT_SECONDS
         start_time = time.time()
@@ -78,7 +79,7 @@ class KubernetesClient:
             try:
                 deployment = cast(
                     client.V1Deployment,
-                    api.read_namespaced_deployment(name=LOADGENERATOR_NAME, namespace="default"),
+                    api.read_namespaced_deployment(name=deployment_name, namespace="default"),
                 )
             except client.ApiException as e:
                 logger.error(f"Error reading deployment status: {e}")
@@ -95,13 +96,13 @@ class KubernetesClient:
                 and updated_replicas == desired_replicas
                 and available_replicas == desired_replicas
             ):
-                logger.info("Deployment loadgenerator rollout is complete.")
+                logger.info(f"Deployment {deployment_name} rollout is complete.")
                 break
 
             time.sleep(PATCH_POLL_INTERVAL_SECONDS)
         else:
             raise TimeoutError(
-                f"Deployment '{LOADGENERATOR_NAME}' did not complete within {timeout_seconds} seconds."
+                f"Deployment '{deployment_name}' did not complete within {timeout_seconds} seconds."
             )
 
     def _patch_loadgenerator_deployment(self, user_count: str) -> client.V1Deployment:
@@ -150,7 +151,8 @@ class KubernetesClient:
                     total_cpu += self._convert_millicores_to_quantity(cpu)
 
             if total_cpu > 0:
-                cpu_requests[name] = total_cpu
+                replicas = deployment.spec.replicas or 1
+                cpu_requests[name] = total_cpu * replicas
 
         logger.debug(f"CPU requests per service: {cpu_requests}")
         return cpu_requests
@@ -161,10 +163,18 @@ class KubernetesClient:
             return int(raw[:-1]) / 1000.0
         return float(raw)
 
-    def stop_loadgenerator(self) -> None:
+    def scale_service_deployment(self, service_name: str, replicas: int) -> None:
         """
-        Scales the loadgenerator deployment to 0 replicas for stopping traffic generation.
+        Scales a named service deployment to the specified replica count and waits for rollout.
         """
+        body = {"spec": {"replicas": replicas}}
+        patched = self.apps_api_istance.patch_namespaced_deployment(
+            name=service_name, namespace=DEFAULT_NAMESPACE, body=body
+        )
+        self._wait_for_patch_completion(cast(client.V1Deployment, patched), self.apps_api_istance)
+
+    def stop_load_generation(self) -> None:
+        """Scales the loadgenerator deployment to 0 replicas, stopping traffic generation."""
 
         body = {"spec": {"replicas": 0}}
 
