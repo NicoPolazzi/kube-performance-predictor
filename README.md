@@ -12,6 +12,14 @@ Ensure that you have the following tools installed:
 * [Kustomize](https://github.com/kubernetes-sigs/kustomize)
 
 
+## Installation
+
+Install the Python dependencies using Poetry:
+
+```shell
+poetry install
+```
+
 ## Setup
 
 The tests were performed on a local cluster using Minikube with the deployed [microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) application.
@@ -94,5 +102,13 @@ kubectl port-forward -n istio-system service/prometheus 9090:9090
 In a new terminal window, execute the collector script:
 
 ```shell
-poetry run python kpp/collector.py 
+poetry run python kpp/collector/collector.py
+```
+
+### Train and predict
+
+After collecting data, run the predictor to train models and generate plots:
+
+```shell
+poetry run python kpp/predictor/main.py
 ```
