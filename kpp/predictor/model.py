@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
 
-logger = logging.getLogger("predictor")
+logger = logging.getLogger(__name__)
 
 
 class PerformanceModel(nn.Module):

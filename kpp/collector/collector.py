@@ -1,3 +1,4 @@
+import logging
 import time
 
 from kubernetes import client
@@ -13,10 +14,11 @@ from kpp.logging_config import setup_logging
 
 COOLDOWN_SECONDS = 180
 
-logger = setup_logging("collector", log_file="app.log")
+logger = logging.getLogger(__name__)
 
 
 def main():
+    setup_logging("collector", log_file="app.log")
     config = CollectorConfig.from_env()
     writer = CsvWriter()
     prom_client = PrometheusClient(PrometheusConnect(url=config.prometheus_url, disable_ssl=True))
@@ -89,7 +91,7 @@ def _collect_data_samples(
 
         writer.write_samples(samples_batch, user_count, current_timestamp)
         for sample in samples_batch:
-            logger.info(f"[{user_count} users] {sample.service_name}: wrote sample on CSV")
+            logger.debug(f"[{user_count} users] {sample.service_name}: wrote sample on CSV")
         time.sleep(config.query_interval)
         current_experiment_duration += config.query_interval
 
