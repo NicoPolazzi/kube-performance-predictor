@@ -136,7 +136,7 @@ def test_change_performance_test_load_when_deployment_never_ready_raises_timeout
         client.change_performance_test_load("10")
 
 
-def test_get_cpu_requests_multiplies_by_replica_count(mocker):
+def test_get_cpu_requests_returns_per_replica_value(mocker):
     apps_api = mocker.MagicMock()
     apps_api.list_namespaced_deployment.return_value = SimpleNamespace(
         items=[
@@ -146,8 +146,36 @@ def test_get_cpu_requests_multiplies_by_replica_count(mocker):
     )
     client = KubernetesClient(core_api=mocker.MagicMock(), apps_api=apps_api)
     result = client.get_cpu_requests()
-    assert result["frontend"] == pytest.approx(0.2)   # 100m * 2 replicas
-    assert result["cartservice"] == pytest.approx(1.5)  # 500m * 3 replicas
+    assert result["frontend"] == pytest.approx(0.1)   # 100m per replica
+    assert result["cartservice"] == pytest.approx(0.5)  # 500m per replica
+
+
+def test_get_replicas_returns_replica_count_per_service(mocker):
+    apps_api = mocker.MagicMock()
+    apps_api.list_namespaced_deployment.return_value = SimpleNamespace(
+        items=[
+            _make_deployment("frontend", "100m", replicas=2),
+            _make_deployment("cartservice", "500m", replicas=3),
+        ]
+    )
+    client = KubernetesClient(core_api=mocker.MagicMock(), apps_api=apps_api)
+    result = client.get_replicas()
+    assert result["frontend"] == 2
+    assert result["cartservice"] == 3
+
+
+def test_get_replicas_excludes_loadgenerator(mocker):
+    apps_api = mocker.MagicMock()
+    apps_api.list_namespaced_deployment.return_value = SimpleNamespace(
+        items=[
+            _make_deployment("frontend", "100m", replicas=1),
+            _make_deployment("loadgenerator", "200m", replicas=1),
+        ]
+    )
+    client = KubernetesClient(core_api=mocker.MagicMock(), apps_api=apps_api)
+    result = client.get_replicas()
+    assert "loadgenerator" not in result
+    assert "frontend" in result
 
 
 def test_scale_service_deployment_patches_replicas_and_waits(mocker):

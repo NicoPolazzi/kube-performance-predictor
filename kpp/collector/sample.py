@@ -7,4 +7,5 @@ class PerformanceSample:
     response_time: float
     throughput: float
     cpu_usage: float
+    replicas: int
     cpu_request: float

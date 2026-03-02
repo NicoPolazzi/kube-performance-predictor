@@ -151,11 +151,26 @@ class KubernetesClient:
                     total_cpu += self._convert_millicores_to_quantity(cpu)
 
             if total_cpu > 0:
-                replicas = deployment.spec.replicas or 1
-                cpu_requests[name] = total_cpu * replicas
+                cpu_requests[name] = total_cpu
 
         logger.debug(f"CPU requests per service: {cpu_requests}")
         return cpu_requests
+
+    def get_replicas(self) -> dict[str, int]:
+        """
+        get_replicas retrieves the current replica count for each deployment in the default namespace.
+
+        Returns a dict mapping service name to replica count.
+        """
+        deployments = self.apps_api_istance.list_namespaced_deployment(namespace=DEFAULT_NAMESPACE)
+        replicas: dict[str, int] = {}
+        for deployment in deployments.items:
+            name = deployment.metadata.labels.get(APP_LABEL)
+            if name is None or name == LOADGENERATOR_NAME:
+                continue
+            replicas[name] = deployment.spec.replicas or 1
+        logger.debug(f"Replicas per service: {replicas}")
+        return replicas
 
     def _convert_millicores_to_quantity(self, raw: str) -> float:
         raw = raw.strip()

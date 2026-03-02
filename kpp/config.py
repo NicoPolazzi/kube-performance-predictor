@@ -1,4 +1,3 @@
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,9 +6,16 @@ import yaml
 from dotenv import load_dotenv
 
 _PREDICTOR_CONFIG_PATH = Path(__file__).parent.parent / "predictor_config.yaml"
+_EXPERIMENTS_CONFIG_PATH = Path(__file__).parent.parent / "experiments.yaml"
 
 
 # ── Collector ────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ExperimentConfig:
+    users: int
+    replicas: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -18,24 +24,20 @@ class CollectorConfig:
     experiment_duration: int
     query_interval: int
     warmup_period: int
-    user_counts: list[int]
-    service_replicas: dict[str, int]
+    experiments: list[ExperimentConfig]
 
     @classmethod
-    def from_env(cls) -> "CollectorConfig":
+    def from_env(cls, experiments_path: Path = _EXPERIMENTS_CONFIG_PATH) -> "CollectorConfig":
         load_dotenv()
-        start = int(os.getenv("TEST_USER_START", "10"))
-        end = int(os.getenv("TEST_USER_END", "20"))
-        step = int(os.getenv("TEST_USER_STEP", "5"))
-        raw = os.getenv("SERVICE_REPLICAS", "{}")
-        service_replicas: dict[str, int] = json.loads(raw)
+        with open(experiments_path) as f:
+            raw = yaml.safe_load(f)
+        experiments = [ExperimentConfig(**e) for e in raw["experiments"]]
         return cls(
             prometheus_url=os.getenv("PROMETHEUS_URL", "http://localhost:9090"),
             experiment_duration=int(os.getenv("EXPERIMENT_DURATION_SECONDS", "600")),
             query_interval=int(os.getenv("QUERY_SAMPLE_DURATION_SECONDS", "60")),
             warmup_period=int(os.getenv("QUERY_SAMPLE_DURATION_SECONDS", "60")) * 2,
-            user_counts=list(range(start, end + 1, step)),
-            service_replicas=service_replicas,
+            experiments=experiments,
         )
 
 

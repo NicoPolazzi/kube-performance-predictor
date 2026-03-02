@@ -19,9 +19,9 @@ def _read_csv(path: Path) -> list[list[str]]:
 
 def test_write_samples_when_samples_are_not_empty_correctly_write_rows(writer):
     samples = [
-        PerformanceSample("svc-a", 0.1, 5.0, 0.2, 0.5),
-        PerformanceSample("svc-b", 0.2, 10.0, 0.4, 1.0),
-        PerformanceSample("svc-c", 0.3, 15.0, 0.6, 2.0),
+        PerformanceSample("svc-a", 0.1, 5.0, 0.2, 2, 0.5),
+        PerformanceSample("svc-b", 0.2, 10.0, 0.4, 1, 1.0),
+        PerformanceSample("svc-c", 0.3, 15.0, 0.6, 3, 2.0),
     ]
     writer.write_samples(samples, user_count=10, timestamp=1000.0)
     rows = _read_csv(writer.filename)
@@ -33,7 +33,8 @@ def test_write_samples_when_samples_are_not_empty_correctly_write_rows(writer):
     assert float(rows[1][3]) == pytest.approx(0.1)
     assert float(rows[1][4]) == pytest.approx(5.0)
     assert float(rows[1][5]) == pytest.approx(0.2)
-    assert float(rows[1][6]) == pytest.approx(0.2 / 0.5)
+    assert int(rows[1][6]) == 2
+    assert float(rows[1][7]) == pytest.approx(0.5)
 
 
 def test_write_samples_when_empty_samples_writes_only_header(writer):

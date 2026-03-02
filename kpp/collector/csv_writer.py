@@ -14,7 +14,8 @@ HEADERS = [
     "Response Time (s)",
     "Throughput (req/s)",
     "CPU Usage",
-    "CPU Usage %",
+    "Replicas",
+    "CPU Request",
 ]
 
 _DEFAULT_DATASET_DIR = Path(__file__).parent.parent.parent / "dataset"
@@ -52,7 +53,8 @@ class CsvWriter:
                     sample.response_time,
                     sample.throughput,
                     sample.cpu_usage,
-                    sample.cpu_usage / sample.cpu_request,
+                    sample.replicas,
+                    sample.cpu_request,
                 ]
                 for sample in samples
             ]

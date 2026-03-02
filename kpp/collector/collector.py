@@ -26,31 +26,36 @@ def main():
     kube_client = KubernetesClient(core_api=client.CoreV1Api(), apps_api=client.AppsV1Api())
     service_names = kube_client.get_services_names()
 
-    for service_name, replicas in config.service_replicas.items():
-        kube_client.scale_service_deployment(service_name, replicas)
     cpu_requests = kube_client.get_cpu_requests()
 
+    all_services = {svc for exp in config.experiments for svc in exp.replicas}
+
     try:
-        for user_count in config.user_counts:
-            logger.info(f"Starting test for {user_count} users...")
-            kube_client.change_performance_test_load(str(user_count))
+        for experiment in config.experiments:
+            for service_name, replicas in experiment.replicas.items():
+                kube_client.scale_service_deployment(service_name, replicas)
+            logger.info("Replicas scaled for experiment users=%d", experiment.users)
+
+            current_replicas = kube_client.get_replicas()
+            kube_client.change_performance_test_load(str(experiment.users))
             time.sleep(config.warmup_period)  # We skip the first performance sample
             _collect_data_samples(
                 config=config,
                 service_names=service_names,
                 client=prom_client,
                 writer=writer,
-                user_count=user_count,
+                user_count=experiment.users,
                 cpu_requests=cpu_requests,
+                replicas=current_replicas,
             )
-            logger.info(f"Test for {user_count} users ended with success")
+            logger.info(f"Test for {experiment.users} users ended with success")
             logger.info(f"waiting for {COOLDOWN_SECONDS} seconds...")
             kube_client.stop_load_generation()
             time.sleep(COOLDOWN_SECONDS)
 
     finally:
         kube_client.stop_load_generation()
-        for service_name in config.service_replicas:
+        for service_name in all_services:
             kube_client.scale_service_deployment(service_name, 1)
 
     logger.info("Experiment ended with success!")
@@ -63,16 +68,8 @@ def _collect_data_samples(
     writer: CsvWriter,
     user_count: int,
     cpu_requests: dict[str, float],
+    replicas: dict[str, int],
 ) -> None:
-    for service in service_names:
-        cpu_request = cpu_requests.get(service, 0.0)
-        if cpu_request > 0:
-            cpu_pct = client.get_cpu_usage(service) / cpu_request
-            if not (0.10 <= cpu_pct <= 0.40):
-                logger.warning(
-                    f"[{user_count} users] {service}: CPU% {cpu_pct:.1%} is outside 10-40% range"
-                )
-
     current_experiment_duration = 0
 
     while current_experiment_duration <= config.experiment_duration:
@@ -85,13 +82,26 @@ def _collect_data_samples(
                 response_time=client.get_average_response_time(service_name),
                 throughput=client.get_throughput(service_name),
                 cpu_usage=client.get_cpu_usage(service_name),
+                replicas=replicas.get(service_name, 1),
                 cpu_request=cpu_requests.get(service_name, 0.0),
             )
             samples_batch.append(sample)
 
         writer.write_samples(samples_batch, user_count, current_timestamp)
         for sample in samples_batch:
-            logger.debug(f"[{user_count} users] {sample.service_name}: wrote sample on CSV")
+            if sample.cpu_request > 0:
+                cpu_pct = sample.cpu_usage / (sample.cpu_request * sample.replicas) * 100
+                logger.info(
+                    "[%d users] %s: cpu=%.1f%% rt=%.3fs throughput=%.1f rps",
+                    user_count, sample.service_name, cpu_pct,
+                    sample.response_time, sample.throughput,
+                )
+            else:
+                logger.info(
+                    "[%d users] %s: cpu_request=0, usage=%.4f cores rt=%.3fs throughput=%.1f rps",
+                    user_count, sample.service_name, sample.cpu_usage,
+                    sample.response_time, sample.throughput,
+                )
         time.sleep(config.query_interval)
         current_experiment_duration += config.query_interval
 
