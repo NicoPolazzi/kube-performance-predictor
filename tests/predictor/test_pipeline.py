@@ -10,16 +10,21 @@ FIXTURE_CSV = Path(__file__).parent / "fixtures/small_sample.csv"
 
 TARGET_COLUMNS = ["Response Time (s)", "Throughput (req/s)", "CPU Usage"]
 
+# The fixture has ~33 rows per service. With sequence_length=5 and train_ratio=0.9,
+# the test split gets only 4 rows — fewer than sequence_length+1. Use 0.7 for tests
+# that need the full pipeline to succeed.
+_TRAIN_RATIO = 0.7
+
 
 def test_run_returns_dict_keyed_by_service():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    result = pipeline.run(str(FIXTURE_CSV))
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     assert set(result.keys()) == {"adservice", "frontend"}
 
 
 def test_run_output_x_shape_is_samples_seqlen_features():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    result = pipeline.run(str(FIXTURE_CSV))
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         assert isinstance(service_data["train"], TensorDataset)
         X_train = service_data["train"].tensors[0]
@@ -29,7 +34,7 @@ def test_run_output_x_shape_is_samples_seqlen_features():
 
 def test_run_output_y_shape_is_samples_targets():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    result = pipeline.run(str(FIXTURE_CSV))
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         assert isinstance(service_data["train"], TensorDataset)
         y_train = service_data["train"].tensors[1]
@@ -58,34 +63,24 @@ def test_run_raises_when_not_enough_rows_for_windows(tmp_path):
         pipeline.run(str(small_csv))
 
 
-def test_run_raises_when_no_train_samples(tmp_path):
-    df = pd.read_csv(FIXTURE_CSV)
-    # Keep only adservice and set all throughput to the same value so percentile split yields empty train
-    svc_df = df[df["Service"] == "adservice"].copy()
-    svc_df["Throughput (req/s)"] = 1.0
-    svc_df.to_csv(tmp_path / "equal_throughput.csv", index=False)
-
+def test_run_temporal_split_train_larger_than_test():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    # Wide percentile range that would normally include everything — but equal throughput
-    # means quantile(0.0) == quantile(1.0), so ~all rows pass the mask.
-    # Use extremely narrow boundaries that exclude all rows.
-    with pytest.raises(ValueError):
-        pipeline.run(
-            str(tmp_path / "equal_throughput.csv"),
-            train_lower_percentile=0.6,
-            train_upper_percentile=0.4,
-        )
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
+    for service_data in result.values():
+        n_train = service_data["train"].tensors[0].shape[0]
+        n_test = service_data["test"].tensors[0].shape[0]
+        assert n_train > n_test
 
 
 def test_run_stores_scalers_for_each_service():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    result = pipeline.run(str(FIXTURE_CSV))
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     assert set(pipeline.scalers.keys()) == set(result.keys())
 
 
 def test_run_scaler_values_are_in_zero_one_range():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    result = pipeline.run(str(FIXTURE_CSV))
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         X_train = service_data["train"].tensors[0]
         y_train = service_data["train"].tensors[1]
@@ -112,5 +107,5 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
 
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
     # We just need it to run without error; the duplicate rows will have been aggregated
-    result = pipeline.run(str(dup_csv))
+    result = pipeline.run(str(dup_csv), train_ratio=_TRAIN_RATIO)
     assert "adservice" in result

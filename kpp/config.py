@@ -47,8 +47,7 @@ class CollectorConfig:
 @dataclass(frozen=True)
 class PipelineConfig:
     sequence_length: int
-    train_lower_percentile: float
-    train_upper_percentile: float
+    train_ratio: float
 
 
 @dataclass(frozen=True)

@@ -19,7 +19,7 @@ class PerformanceDataPipeline:
     Flow:
     1. Load CSV & Fix Timestamps (Aggregation)
     2. Split by Microservice
-    3. Throughput-Percentile Split -> Train: [min, max] req/s; Test: outside that range
+    3. Temporal Split -> Train: first 90% of time-ordered rows; Test: last 10%
     4. Normalize (Per Service, fit on train only) -> Stores Scalers for later inversion
     5. Windowing -> Creates (X, y) tensors for ML training
     """
@@ -31,7 +31,8 @@ class PerformanceDataPipeline:
         "Response Time (s)",
         "Throughput (req/s)",
         "CPU Usage",
-        # "CPU Usage %",
+        "Replicas",
+        "CPU Request",
     ]
 
     DELTA_COLUMNS = ["Δ User Count", "Δ Throughput (req/s)"]
@@ -41,12 +42,7 @@ class PerformanceDataPipeline:
         self.target_columns = target_columns
         self.scalers: Dict[str, MinMaxScaler] = {}  # Used to invert the prediction
 
-    def run(
-        self,
-        csv_path: str,
-        train_lower_percentile: float = 0.15,
-        train_upper_percentile: float = 0.85,
-    ) -> ServiceDatasets:
+    def run(self, csv_path: str, train_ratio: float = 0.9) -> ServiceDatasets:
         """
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
             {
@@ -57,11 +53,11 @@ class PerformanceDataPipeline:
                 "backend": ...
             }
 
-        Split strategy: samples within the per-service throughput percentile range
-        [train_lower_percentile, train_upper_percentile] go to train; samples outside
-        that range go to test. Percentiles are computed per service, so each service gets a
-        balanced split regardless of its absolute throughput level. The scaler is fit exclusively
-        on the training split to avoid data leakage.
+        Split strategy: 90/10 temporal split per service. The data is already time-ordered
+        from aggregation; the first floor(len * train_ratio) rows go to train, the rest to
+        test. This supports an interpolation experiment where the model trains on a
+        representative slice of the normal-workload dataset and evaluates on the held-out
+        portion.
         """
         df = self._load_data(csv_path)
         service_dfs = self._split_by_service(df)
@@ -69,9 +65,7 @@ class PerformanceDataPipeline:
 
         for service_name, service_df in service_dfs.items():
             service_df = self._add_delta_features(service_df)
-            train_raw, test_raw = self._throughput_percentile_split(
-                service_df, train_lower_percentile, train_upper_percentile, service_name
-            )
+            train_raw, test_raw = self._temporal_split(service_df, train_ratio, service_name)
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
             X_train, y_train = self._create_windows(train_df)
             X_test, y_test = self._create_windows(test_df)
@@ -121,46 +115,26 @@ class PerformanceDataPipeline:
         df["Δ Throughput (req/s)"] = df["Throughput (req/s)"].diff().fillna(0)
         return df
 
-    def _throughput_percentile_split(
+    def _temporal_split(
         self,
         df: pd.DataFrame,
-        lower_percentile: float,
-        upper_percentile: float,
+        train_ratio: float,
         service_name: str,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Splits the raw (un-normalized) dataframe by per-service throughput percentile boundaries.
+        Splits the raw (un-normalized) dataframe by time order.
 
-        The lower and upper throughput thresholds are computed from this service's own distribution,
-        so each service gets a balanced split regardless of its absolute throughput level. Samples
-        within [p_lower, p_upper] go to train; samples outside go to test.
+        The dataframe is already time-ordered from _load_data aggregation. The first
+        floor(len(df) * train_ratio) rows go to train; the remaining rows go to test.
         """
-        throughput = df["Throughput (req/s)"]
-        min_val = throughput.quantile(lower_percentile)
-        max_val = throughput.quantile(upper_percentile)
-        train_mask = (throughput >= min_val) & (throughput <= max_val)
-
-        train_df = df[train_mask].copy()
-        test_df = df[~train_mask].copy()
+        split_idx = int(len(df) * train_ratio)
+        train_df = df.iloc[:split_idx].copy()
+        test_df = df.iloc[split_idx:].copy()
 
         logger.info(
-            f"[{service_name}] Throughput-percentile split "
-            f"(p{lower_percentile * 100:.0f}–p{upper_percentile * 100:.0f}): "
-            f"{train_mask.sum()} train ({min_val:.2f}–{max_val:.2f} req/s), "
-            f"{(~train_mask).sum()} test."
+            f"[{service_name}] Temporal split (ratio={train_ratio:.2f}): "
+            f"{len(train_df)} train, {len(test_df)} test rows."
         )
-
-        if len(train_df) == 0:
-            raise ValueError(
-                f"[{service_name}] No training samples found in the throughput percentile range "
-                f"[p{lower_percentile * 100:.0f}, p{upper_percentile * 100:.0f}]. "
-                f"Adjust train_lower_percentile / train_upper_percentile."
-            )
-        if len(test_df) == 0:
-            logger.warning(
-                f"[{service_name}] No test samples outside the throughput percentile range. "
-                "The evaluation will not measure out-of-distribution generalisation."
-            )
 
         return train_df, test_df
 

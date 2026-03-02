@@ -11,6 +11,8 @@ FEATURE_NAMES = [
     "Response Time (s)",
     "Throughput (req/s)",
     "CPU Usage",
+    "Replicas",
+    "CPU Request",
     "Δ User Count",
     "Δ Throughput (req/s)",
 ]

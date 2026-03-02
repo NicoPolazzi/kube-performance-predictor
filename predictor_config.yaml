@@ -1,7 +1,6 @@
 pipeline:
   sequence_length: 5
-  train_lower_percentile: 0.15
-  train_upper_percentile: 0.85
+  train_ratio: 0.9
 
 model:
   hidden_size: 32
