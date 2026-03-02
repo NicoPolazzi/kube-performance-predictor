@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Collector and predictor for Kubernetes microservice performance using ML. It collects Prometheus metrics from a Minikube cluster running Google's microservices-demo with Istio, then trains per-service ML models on the collected time-series data.
 
+@docs/ARCHITECTURE.md
+
 ## Project Context
 
 When working with this codebase, prioritize readability over cleverness. Ask clarifying questions before making architectural changes.
@@ -26,39 +28,6 @@ poetry run mypy .
 # Run tests
 poetry run pytest
 ```
-
-
-## Architecture
-
-The system has two independent phases:
-
-### 1. Data Collection (`kpp/collector/`)
-Connects to a live Kubernetes cluster, scales load via the loadgenerator deployment, polls Prometheus for Istio metrics, and writes results to timestamped CSV files (`performance_results_YYYYMMDD-HHMMSS.csv`).
-
-- `collector.py` — Entry point; iterates user counts (from `.env`)
-- `kubernetes_client.py` — Patches loadgenerator deployment env vars (`USERS`, `RATE`), waits for rollout
-- `prometheus_client.py` — PromQL queries for response time, throughput, and CPU via Istio metrics
-- `csv_writer.py` — Batched writes to CSV
-
-### 2. ML Training & Prediction (`kpp/predictor/`)
-Loads collected CSV data, normalizes per service, trains a linear model for each microservice, and saves models/plots.
-
-- `main.py` — Orchestration: runs the training loop, calls `evaluate()`+`plot()` per service, prints the RMSE table via `generate_rmse_table()`; also owns `plot()`, `_load_results()`, `_print_table()`, `generate_rmse_table()`
-- `pipeline.py` — `PerformanceDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, normalizes with per-service `MinMaxScaler`, stratifies split by throughput percentile
-- `model.py` — `PerformanceModel` (linear input → hidden → output with ReLU); `train_model()` (Adam + ReduceLROnPlateau, saves best weights to `models/`); `evaluate()` (inference on test set, inverts scaling, returns predictions/targets/user counts)
-
-### Shared
-- `kpp/config.py` — Frozen dataclasses for both phases: `CollectorConfig` (loads from `.env`) and `PredictorConfig` (loads from `predictor_config.yaml`)
-
-### Data & Model Storage
-- `dataset/` — Pre-collected CSV files (used as input to predictor)
-- `models/` — Output: `{service}.pth` weights + `config_{service}.json` (hyperparams, best_test_loss)
-- `plots/` — Output: `{service}_predictions.png` prediction visualizations
-
-### Key Design Decisions
-- The collector excludes non-HTTP services such as `redis-cart` from service discovery (no Istio metrics exposed)
-- A 60-second warmup period matches Prometheus's `rate()` window before sampling begins
-- A 180s cooldown is performed between load experiments
 
 
 ## Conventions

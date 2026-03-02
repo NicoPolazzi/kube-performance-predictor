@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Tuple, TypeAlias
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ from torch.utils.data import TensorDataset
 
 logger = logging.getLogger(__name__)
 
-ServiceDatasets: TypeAlias = Dict[str, Dict[str, TensorDataset]]
+type ServiceDatasets = Dict[str, Dict[str, TensorDataset]]
 
 
 class PerformanceDataPipeline:
@@ -24,12 +24,14 @@ class PerformanceDataPipeline:
     5. Windowing -> Creates (X, y) tensors for ML training
     """
 
+    THROUGHPUT_COL = "Throughput (req/s)"
+
     REQUIRED_COLUMNS = [
         "Timestamp",
         "Service",
         "User Count",
         "Response Time (s)",
-        "Throughput (req/s)",
+        THROUGHPUT_COL,
         "CPU Usage",
         "Replicas",
         "CPU Request",
@@ -71,7 +73,7 @@ class PerformanceDataPipeline:
             X_test, y_test = self._create_windows(test_df)
             processed_datasets[service_name] = {
                 "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
-                "test":  TensorDataset(torch.from_numpy(X_test),  torch.from_numpy(y_test)),
+                "test": TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
             }
 
         return processed_datasets
@@ -112,7 +114,7 @@ class PerformanceDataPipeline:
     def _add_delta_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df["Δ User Count"] = df["User Count"].diff().fillna(0)
-        df["Δ Throughput (req/s)"] = df["Throughput (req/s)"].diff().fillna(0)
+        df["Δ Throughput (req/s)"] = df[self.THROUGHPUT_COL].diff().fillna(0)
         return df
 
     def _temporal_split(

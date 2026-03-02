@@ -4,12 +4,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
 from kpp.predictor.model import PerformanceModel, evaluate, train_model
 from kpp.predictor.pipeline import PerformanceDataPipeline
-from torch.utils.data import DataLoader
 
 logger = logging.getLogger("predictor")
 
@@ -31,7 +31,10 @@ def compute_metrics(
         mae = float(np.mean(np.abs(preds - targets)))
         valid_mask = np.abs(targets) > 1e-10
         if valid_mask.any():
-            mape = float(np.mean(np.abs((preds[valid_mask] - targets[valid_mask]) / targets[valid_mask])) * 100)
+            mape = float(
+                np.mean(np.abs((preds[valid_mask] - targets[valid_mask]) / targets[valid_mask]))
+                * 100
+            )
         else:
             mape = float("nan")
         metrics[col_name] = {"MAE": mae, "MAPE": mape}
@@ -185,9 +188,11 @@ def main() -> None:
         logger.info(f"Test Shape:  {test_dataset.tensors[0].shape}")
 
         train_loader = DataLoader(
-            train_dataset, batch_size=config.training.batch_size, shuffle=True
+            train_dataset, batch_size=config.training.batch_size, shuffle=True, num_workers=2
         )
-        test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False)
+        test_loader = DataLoader(
+            test_dataset, batch_size=config.training.batch_size, shuffle=False, num_workers=2
+        )
 
         output_size = train_dataset.tensors[1].shape[1]
         flat_input_size = train_dataset.tensors[0].shape[1] * train_dataset.tensors[0].shape[2]
@@ -233,7 +238,9 @@ def main() -> None:
         )
 
         target_indices = [all_features.index(col) for col in target_cols]
-        service_metrics = compute_metrics(real_predictions, real_targets, target_cols, target_indices)
+        service_metrics = compute_metrics(
+            real_predictions, real_targets, target_cols, target_indices
+        )
         all_metrics[service_name] = service_metrics
 
         plot(

@@ -47,7 +47,7 @@ def train_model(
     best_test_loss = float("inf")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.003)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -63,14 +63,14 @@ def train_model(
         test_total_samples = 0
 
         model.train()
-        for batch_X, batch_y in train_loader:
+        for batch_x, batch_y in train_loader:
             optimizer.zero_grad()
-            predictions = model(batch_X)
+            predictions = model(batch_x)
             loss = criterion(predictions, batch_y)
             loss.backward()
             optimizer.step()
-            train_loss += loss.item() * batch_X.size(0)
-            train_total_samples += batch_X.size(0)
+            train_loss += loss.item() * batch_x.size(0)
+            train_total_samples += batch_x.size(0)
 
         if train_total_samples == 0:
             raise RuntimeError(f"No training samples found for {service_name}.")
@@ -78,11 +78,11 @@ def train_model(
 
         model.eval()
         with torch.no_grad():
-            for batch_X, batch_y in test_loader:
-                predictions = model(batch_X)
+            for batch_x, batch_y in test_loader:
+                predictions = model(batch_x)
                 loss = criterion(predictions, batch_y)
-                test_loss += loss.item() * batch_X.size(0)
-                test_total_samples += batch_X.size(0)
+                test_loss += loss.item() * batch_x.size(0)
+                test_total_samples += batch_x.size(0)
 
         if test_total_samples == 0:
             raise RuntimeError(f"No test samples found for {service_name}.")
@@ -155,12 +155,12 @@ def evaluate(
 
     model.eval()
     with torch.no_grad():
-        for batch_X, batch_y in test_loader:
-            predictions = model(batch_X)
+        for batch_x, batch_y in test_loader:
+            predictions = model(batch_x)
             all_predictions.append(predictions.cpu().numpy())
             all_targets.append(batch_y.cpu().numpy())
             # Extract user count from the last timestep of each input window
-            all_user_counts_norm.append(batch_X[:, -1, user_count_idx].cpu().numpy())
+            all_user_counts_norm.append(batch_x[:, -1, user_count_idx].cpu().numpy())
 
     pred_array = np.concatenate(all_predictions, axis=0)
     target_array = np.concatenate(all_targets, axis=0)
