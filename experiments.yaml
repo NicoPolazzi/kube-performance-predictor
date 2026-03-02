@@ -1,0 +1,25 @@
+experiments:
+  - users: 50
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 60
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 70
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 80
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 90
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 100
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 110
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 120
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 130
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 140
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+  - users: 150
+    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+
+ 

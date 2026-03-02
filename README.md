@@ -6,10 +6,19 @@ This project represents my Master's thesis in Sofware: Science and Technology at
 
 Ensure that you have the following tools installed:
 * [Poetry](https://python-poetry.org/)
+* [kubectl](https://kubernetes.io/releases/download/)
 * [Minikube](https://minikube.sigs.k8s.io/docs/start/)
 * [Istioctl](https://istio.io/latest/docs/setup/getting-started/)
 * [Kustomize](https://github.com/kubernetes-sigs/kustomize)
 
+
+## Installation
+
+Install the Python dependencies using Poetry:
+
+```shell
+poetry install
+```
 
 ## Setup
 
@@ -38,7 +47,7 @@ kubectl label namespace default istio-injection=enabled
 **Important**: The minimal profile does not include Prometheus by default. Install it manually to enable metrics collection:
 
 ```shell
-kubectl apply -f [https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml](https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml)
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml
 ```
 
 ### Install Gateway API CRDs
@@ -93,5 +102,13 @@ kubectl port-forward -n istio-system service/prometheus 9090:9090
 In a new terminal window, execute the collector script:
 
 ```shell
-poetry run python kpp/collector.py 
+poetry run python kpp/collector/collector.py
+```
+
+### Train and predict
+
+After collecting data, run the predictor to train models and generate plots:
+
+```shell
+poetry run python kpp/predictor/main.py
 ```

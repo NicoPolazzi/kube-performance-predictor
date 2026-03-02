@@ -3,16 +3,14 @@ from typing import Any
 
 from prometheus_api_client import PrometheusConnect
 
-VALUE_KEY = "value"
-
 
 class PrometheusClient:
     """The idea here is to create an adapter for the external dependency."""
 
     prom: PrometheusConnect
 
-    def __init__(self, server_url: str) -> None:
-        self.prom = PrometheusConnect(url=server_url, disable_ssl=True)
+    def __init__(self, prom: PrometheusConnect) -> None:
+        self.prom = prom
 
     def get_average_response_time(self, service_name: str) -> float:
         """Returns the response time in seconds for service_name. Assumes services are in the default namespace."""
@@ -41,5 +39,4 @@ class PrometheusClient:
         if not response:
             return math.nan
 
-        value_str = response[0][VALUE_KEY][1]
-        return float(value_str)
+        return float(response[0]["value"][1])

@@ -5,9 +5,13 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-24.04
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0   # Full history for SonarQube analysis
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -15,22 +19,38 @@ jobs:
         python-version: "3.14"
 
     - name: Install Poetry
-      run: pipx install poetry
+      run: pipx install poetry==2.3.2
 
     - name: Configure Poetry
-      run: poetry config virtualenvs.in-project true
+      run: | 
+        poetry config virtualenvs.create true --local
+        poetry config virtualenvs.in-project true --local
 
-    - name: Cache virtual environment
+    - name: Cache virtual environment and SonarQube
       uses: actions/cache@v4
       with:
-        path: .venv
-        key: venv-${{ runner.os }}-python3.14-${{ hashFiles('poetry.lock') }}
+        path: |
+          .venv
+          ~/.sonar/cache
+        key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock') }}
+        restore-keys: ${{ runner.os }}-poetry-
 
     - name: Install Dependencies
-      run: poetry install
+      run:  |
+        poetry check --lock
+        poetry install --no-interaction
 
     - name: Run Linters
       run: poetry run ruff check .
 
     - name: Run Type Checker
       run: poetry run mypy .
+
+    - name: Run Tests
+      run: poetry run pytest
+
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarqube-scan-action@v6
+      env:
+        SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+      if: ${{env.SONAR_TOKEN}}

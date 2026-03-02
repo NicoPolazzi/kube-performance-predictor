@@ -1,18 +1,18 @@
 pipeline:
   sequence_length: 5
-  split_ratio: 0.8
+  train_lower_percentile: 0.15
+  train_upper_percentile: 0.85
 
 model:
-  hidden_size: 64
-  num_layers: 2
-  dropout: 0.1
+  hidden_size: 32
 
 training:
-  epochs: 100
+  epochs: 200
   learning_rate: 0.001
   batch_size: 32
+  weight_decay: 0.001
 
 scheduler:
   factor: 0.5
-  patience: 10
+  patience: 40
   min_lr: 0.000001

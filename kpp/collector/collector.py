@@ -1,48 +1,75 @@
+import logging
 import time
 
-from config import config
-from csv_writer import CsvWriter
-from kubernetes_client import KubernetesClient
+from kubernetes import client
+from kubernetes import config as kube_config
+from prometheus_api_client import PrometheusConnect
+
+from kpp.collector.csv_writer import CsvWriter
+from kpp.collector.kubernetes_client import KubernetesClient
+from kpp.collector.prometheus_client import PrometheusClient
+from kpp.collector.sample import PerformanceSample
+from kpp.config import CollectorConfig
 from kpp.logging_config import setup_logging
-from prometheus_client import PrometheusClient
-from sample import PerformanceSample
 
 COOLDOWN_SECONDS = 180
 
+logger = logging.getLogger(__name__)
+
 
 def main():
-    logger = setup_logging("collector", log_file="app.log")
-
+    setup_logging("collector", log_file="app.log")
+    config = CollectorConfig.from_env()
     writer = CsvWriter()
-    prom_client = PrometheusClient(config.prometheus_url)
-    kube_client = KubernetesClient()
+    prom_client = PrometheusClient(PrometheusConnect(url=config.prometheus_url, disable_ssl=True))
+    kube_config.load_kube_config()
+    kube_client = KubernetesClient(core_api=client.CoreV1Api(), apps_api=client.AppsV1Api())
     service_names = kube_client.get_services_names()
 
+    cpu_requests = kube_client.get_cpu_requests()
+
+    all_services = {svc for exp in config.experiments for svc in exp.replicas}
+
     try:
-        for user_count in config.user_counts:
-            logger.info(f"Starting test for {user_count} users...")
-            kube_client.change_performance_test_load(str(user_count))
+        for experiment in config.experiments:
+            for service_name, replicas in experiment.replicas.items():
+                kube_client.scale_service_deployment(service_name, replicas)
+            logger.info("Replicas scaled for experiment users=%d", experiment.users)
+
+            current_replicas = kube_client.get_replicas()
+            kube_client.change_performance_test_load(str(experiment.users))
+            time.sleep(config.warmup_period)  # We skip the first performance sample
             _collect_data_samples(
+                config=config,
                 service_names=service_names,
                 client=prom_client,
                 writer=writer,
-                user_count=user_count,
+                user_count=experiment.users,
+                cpu_requests=cpu_requests,
+                replicas=current_replicas,
             )
-            logger.info(f"Test for {user_count} users ended with success")
+            logger.info(f"Test for {experiment.users} users ended with success")
             logger.info(f"waiting for {COOLDOWN_SECONDS} seconds...")
-            kube_client.stop_loadgenerator()
+            kube_client.stop_load_generation()
             time.sleep(COOLDOWN_SECONDS)
 
     finally:
-        kube_client.stop_loadgenerator()
+        kube_client.stop_load_generation()
+        for service_name in all_services:
+            kube_client.scale_service_deployment(service_name, 1)
 
     logger.info("Experiment ended with success!")
 
 
 def _collect_data_samples(
-    service_names: set[str], client: PrometheusClient, writer: CsvWriter, user_count: int
+    config: CollectorConfig,
+    service_names: set[str],
+    client: PrometheusClient,
+    writer: CsvWriter,
+    user_count: int,
+    cpu_requests: dict[str, float],
+    replicas: dict[str, int],
 ) -> None:
-    time.sleep(config.warmup_period)  # We skip the first performance sample
     current_experiment_duration = 0
 
     while current_experiment_duration <= config.experiment_duration:
@@ -55,10 +82,26 @@ def _collect_data_samples(
                 response_time=client.get_average_response_time(service_name),
                 throughput=client.get_throughput(service_name),
                 cpu_usage=client.get_cpu_usage(service_name),
+                replicas=replicas.get(service_name, 1),
+                cpu_request=cpu_requests.get(service_name, 0.0),
             )
             samples_batch.append(sample)
 
         writer.write_samples(samples_batch, user_count, current_timestamp)
+        for sample in samples_batch:
+            if sample.cpu_request > 0:
+                cpu_pct = sample.cpu_usage / (sample.cpu_request * sample.replicas) * 100
+                logger.info(
+                    "[%d users] %s: cpu=%.1f%% rt=%.3fs throughput=%.1f rps",
+                    user_count, sample.service_name, cpu_pct,
+                    sample.response_time, sample.throughput,
+                )
+            else:
+                logger.info(
+                    "[%d users] %s: cpu_request=0, usage=%.4f cores rt=%.3fs throughput=%.1f rps",
+                    user_count, sample.service_name, sample.cpu_usage,
+                    sample.response_time, sample.throughput,
+                )
         time.sleep(config.query_interval)
         current_experiment_duration += config.query_interval
 
