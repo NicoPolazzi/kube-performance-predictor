@@ -59,7 +59,7 @@ def test_run_raises_when_not_enough_rows_for_windows(tmp_path):
     small_df.to_csv(small_csv, index=False)
 
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Not enough data"):
         pipeline.run(str(small_csv))
 
 
@@ -88,6 +88,14 @@ def test_run_scaler_values_are_in_zero_one_range():
         assert float(X_train.max()) <= 1.0 + 1e-6
         assert float(y_train.min()) >= -1e-6
         assert float(y_train.max()) <= 1.0 + 1e-6
+        # Test set is transformed by the same scaler; values may slightly exceed [0,1]
+        # if test distribution differs from train, but should be well within [-0.5, 1.5]
+        X_test = service_data["test"].tensors[0]
+        y_test = service_data["test"].tensors[1]
+        assert float(X_test.min()) >= -0.5
+        assert float(X_test.max()) <= 2.0
+        assert float(y_test.min()) >= -0.5
+        assert float(y_test.max()) <= 2.0
 
 
 def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
@@ -106,6 +114,11 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     dup_df.to_csv(dup_csv, index=False)
 
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    # We just need it to run without error; the duplicate rows will have been aggregated
     result = pipeline.run(str(dup_csv), train_ratio=_TRAIN_RATIO)
-    assert "adservice" in result
+
+    # dup_df has len(svc_df) input rows for adservice; after merging the two same-minute
+    # rows into one, there are len(svc_df)-1 rows, so total windows must be strictly
+    # fewer than len(svc_df)-sequence_length (i.e., what non-merged input would yield)
+    n_train = result["adservice"]["train"].tensors[0].shape[0]
+    n_test = result["adservice"]["test"].tensors[0].shape[0]
+    assert n_train + n_test < len(svc_df) - 5  # sequence_length=5

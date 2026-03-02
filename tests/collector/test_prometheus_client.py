@@ -48,3 +48,30 @@ def test_get_throughput_when_response_is_none_returns_nan(mocker):
     result = client.get_throughput("frontend")
     assert math.isnan(result)
     mock_prom.custom_query.assert_called_once()
+
+
+def test_get_average_response_time_when_response_is_empty_returns_nan(mocker):
+    mock_prom = mocker.MagicMock()
+    mock_prom.custom_query.return_value = []
+    client = PrometheusClient(mock_prom)
+    result = client.get_average_response_time("frontend")
+    assert math.isnan(result)
+    mock_prom.custom_query.assert_called_once()
+
+
+def test_get_cpu_usage_when_response_is_empty_returns_nan(mocker):
+    mock_prom = mocker.MagicMock()
+    mock_prom.custom_query.return_value = []
+    client = PrometheusClient(mock_prom)
+    result = client.get_cpu_usage("frontend")
+    assert math.isnan(result)
+    mock_prom.custom_query.assert_called_once()
+
+
+def test_get_throughput_passes_service_name_to_query(mocker):
+    mock_prom = mocker.MagicMock()
+    mock_prom.custom_query.return_value = [{"value": ["1234567890", "12.5"]}]
+    client = PrometheusClient(mock_prom)
+    client.get_throughput("frontend")
+    query_arg = mock_prom.custom_query.call_args.kwargs["query"]
+    assert "frontend" in query_arg
