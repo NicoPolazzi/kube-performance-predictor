@@ -25,8 +25,14 @@ poetry run ruff check .
 # Run type checker
 poetry run mypy .
 
-# Run tests
+# Run unit tests (with coverage)
 poetry run pytest
+
+# Run e2e smoke test (predictor pipeline, slower)
+poetry run poe e2e
+
+# Run full suite (lint + types + unit tests)
+poetry run poe check
 ```
 
 
@@ -54,5 +60,5 @@ Tests live in `tests/`. Run with `poetry run pytest`.
    - Read the relevant module and understand existing patterns first, construct an implementation plan and get approval before writing any code
 
 2. After any code change:
-   - Run `poetry run ruff check .` and `poetry run mypy .` to catch lint/type errors
-   - Run `poetry run pytest` to verify tests pass
+   - Run `poetry run poe check` to lint, type-check, and run unit tests in one step
+   - For changes to the predictor pipeline or model, also run `poetry run poe e2e`

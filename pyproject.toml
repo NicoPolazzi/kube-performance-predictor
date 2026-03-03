@@ -29,6 +29,7 @@ dev = [
     "pytest (>=8.0,<9.0)",
     "pytest-cov (>=6.0,<7.0)",
     "pytest-mock (>=3.14,<4.0)",
+    "poethepoet (>=0.34.0,<1.0.0)",
 ]
 
 [build-system]
@@ -66,8 +67,17 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "--cov=kpp --cov-report=term-missing --cov-report=xml"
+testpaths = ["tests/collector", "tests/predictor"]
+addopts = "--cov=kpp --cov-report=term-missing --cov-report=xml --cov-fail-under=80"
 
 [tool.coverage.run]
 omit = ["kpp/config.py", "kpp/**/__init__.py", "kpp/collector/sample.py", "kpp/logging_config.py", "kpp/predictor/main.py", "kpp/collector/collector.py"]
+
+[tool.poe.tasks]
+lint  = "ruff check ."
+types = "mypy ."
+test  = "pytest"
+e2e   = "pytest tests/e2e/ -v --no-cov"
+
+[[tool.poe.tasks.check]]
+sequence = ["lint", "types", "test"]

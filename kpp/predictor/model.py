@@ -44,6 +44,7 @@ def train_model(
     model_path = out_dir / f"{service_name}.pth"
     config_path = out_dir / f"config_{service_name}.json"
 
+    torch.manual_seed(42)
     best_test_loss = float("inf")
 
     criterion = nn.MSELoss()
@@ -128,7 +129,6 @@ def evaluate(
     Runs inference on the test set and inverts scaling.
 
     Returns (real_predictions, real_targets, user_counts_int) in original scale.
-    Pure computation — no I/O or plotting.
     """
     missing_in_features = [col for col in target_columns if col not in feature_names]
     if missing_in_features:

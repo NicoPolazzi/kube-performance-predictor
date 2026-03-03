@@ -22,7 +22,7 @@ jobs:
       run: pipx install poetry==2.3.2
 
     - name: Configure Poetry
-      run: | 
+      run: |
         poetry config virtualenvs.create true --local
         poetry config virtualenvs.in-project true --local
 
@@ -54,3 +54,38 @@ jobs:
       env:
         SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
       if: ${{env.SONAR_TOKEN}}
+
+  e2e:
+    runs-on: ubuntu-24.04
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main')
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+
+    - name: Install Poetry
+      run: pipx install poetry==2.3.2
+
+    - name: Configure Poetry
+      run: |
+        poetry config virtualenvs.create true --local
+        poetry config virtualenvs.in-project true --local
+
+    - name: Cache virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock') }}
+        restore-keys: ${{ runner.os }}-poetry-
+
+    - name: Install Dependencies
+      run: |
+        poetry check --lock
+        poetry install --no-interaction
+
+    - name: Run E2E Tests
+      run: poetry run pytest tests/e2e/ -v --no-cov
