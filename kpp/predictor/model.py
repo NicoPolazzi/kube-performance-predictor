@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 class PerformanceModel(nn.Module):
-    def __init__(self, input_size: int, output_size: int, hidden_size: int = 128, hidden_size_2: int = 64):
+    def __init__(
+        self, input_size: int, output_size: int, hidden_size: int = 128, hidden_size_2: int = 64
+    ):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size_2),
             nn.ReLU(),
@@ -130,6 +131,7 @@ def evaluate(
     scaler: MinMaxScaler,
     target_columns: list[str],
     feature_names: list[str],
+    log_transform_columns: list[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Runs inference on the test set and inverts scaling.
@@ -182,6 +184,13 @@ def evaluate(
 
     real_predictions = scaler.inverse_transform(dummy_pred)
     real_targets = scaler.inverse_transform(dummy_target)
+
+    if log_transform_columns:
+        for col in log_transform_columns:
+            if col in feature_names:
+                idx = feature_names.index(col)
+                real_predictions[:, idx] = np.expm1(real_predictions[:, idx])
+                real_targets[:, idx] = np.expm1(real_targets[:, idx])
 
     # Inverse-transform user counts via dummy array
     dummy_uc = np.zeros((len(user_counts_norm), num_features))

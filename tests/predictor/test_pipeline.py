@@ -1,9 +1,13 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
-from torch.utils.data import TensorDataset
+import torch
+from sklearn.preprocessing import MinMaxScaler
+from torch.utils.data import DataLoader, TensorDataset
 
+from kpp.predictor.model import evaluate
 from kpp.predictor.pipeline import PerformanceDataPipeline
 
 FIXTURE_CSV = Path(__file__).parent / "fixtures/small_sample.csv"
@@ -121,6 +125,54 @@ def test_run_interpolation_split_raises_when_too_few_user_counts(tmp_path):
         pipeline.run(str(small_csv), split_strategy="interpolation")
 
 
+def test_run_extrapolation_split_returns_all_normal_rows_as_train(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    df.to_csv(normal_csv, index=False)
+    # Overload CSV: shift user counts up so they are outside training range
+    overload_df = df.copy()
+    overload_df["User Count"] = overload_df["User Count"] * 10
+    overload_df.to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    result = pipeline.run(
+        str(normal_csv),
+        split_strategy="extrapolation",
+        test_csv_path=str(overload_csv),
+    )
+
+    assert set(result.keys()) == {"adservice", "frontend"}
+    for service_data in result.values():
+        assert isinstance(service_data["train"], TensorDataset)
+        assert isinstance(service_data["test"], TensorDataset)
+
+
+def test_run_extrapolation_split_drops_service_missing_from_test(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload_partial.csv"
+    df.to_csv(normal_csv, index=False)
+    # Overload CSV has only adservice, not frontend
+    overload_df = df[df["Service"] == "adservice"].copy()
+    overload_df.to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    result = pipeline.run(
+        str(normal_csv),
+        split_strategy="extrapolation",
+        test_csv_path=str(overload_csv),
+    )
+
+    assert set(result.keys()) == {"adservice"}
+
+
+def test_run_extrapolation_split_raises_when_test_csv_path_is_none():
+    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    with pytest.raises(ValueError, match="test_csv_path is required"):
+        pipeline.run(str(FIXTURE_CSV), split_strategy="extrapolation")
+
+
 def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     df = pd.read_csv(FIXTURE_CSV)
     svc_df = df[df["Service"] == "adservice"].copy()
@@ -145,3 +197,65 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     n_train = result["adservice"]["train"].tensors[0].shape[0]
     n_test = result["adservice"]["test"].tensors[0].shape[0]
     assert n_train + n_test < len(svc_df) - 5  # sequence_length=5
+
+
+def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
+    # Build 10 rows with a known max Response Time in the training split.
+    # train_ratio=0.7 → first 7 rows are train; max RT in train = max_rt.
+    n = 10
+    max_rt = 100.0
+    rt_values = [max_rt, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 5.0]
+    df = pd.DataFrame({
+        "Timestamp": [1000.0 + i * 60 for i in range(n)],
+        "Service": ["svc"] * n,
+        "User Count": list(range(1, n + 1)),
+        "Response Time (s)": rt_values,
+        "Throughput (req/s)": [100.0] * n,
+        "CPU Usage": [0.5] * n,
+        "Replicas": [1.0] * n,
+        "CPU Request": [0.5] * n,
+    })
+    csv_path = tmp_path / "test.csv"
+    df.to_csv(csv_path, index=False)
+
+    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline.run(str(csv_path), train_ratio=0.7)
+
+    scaler = pipeline.scalers["svc"]
+    rt_col_idx = list(scaler.feature_names_in_).index("Response Time (s)")
+    assert abs(scaler.data_max_[rt_col_idx] - np.log1p(max_rt)) < 1e-6
+
+
+def test_evaluate_inverts_log_transform_for_response_time():
+    # Set up a scaler fitted on log-space values for two features: User Count + Response Time.
+    feature_names = ["User Count", "Response Time (s)"]
+    target_columns = ["Response Time (s)"]
+    original_rt = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    log_rt = np.log1p(original_rt)
+    user_counts = np.array([10.0, 20.0, 30.0])
+
+    train_data = np.column_stack([user_counts, log_rt]).astype(np.float32)
+    scaler = MinMaxScaler()
+    scaler.fit(train_data)
+    normalized = scaler.transform(train_data)
+
+    # X: (n, seq_len=1, features=2), y: (n, 1) — normalized log response time
+    X = torch.tensor(normalized, dtype=torch.float32).unsqueeze(1)
+    y = torch.tensor(normalized[:, 1:2], dtype=torch.float32)
+    loader = DataLoader(TensorDataset(X, y), batch_size=3, shuffle=False)
+
+    class ZeroModel(torch.nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.zeros(x.size(0), 1)
+
+    _, real_targets, _ = evaluate(
+        model=ZeroModel(),
+        test_loader=loader,
+        scaler=scaler,
+        target_columns=target_columns,
+        feature_names=feature_names,
+        log_transform_columns=["Response Time (s)"],
+    )
+
+    rt_idx = feature_names.index("Response Time (s)")
+    np.testing.assert_allclose(real_targets[:, rt_idx], original_rt, rtol=1e-5)

@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Tuple
+from typing import ClassVar, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -39,12 +39,20 @@ class PerformanceDataPipeline:
 
     DELTA_COLUMNS = ["Δ User Count", "Δ Throughput (req/s)"]
 
+    LOG_TRANSFORM_COLUMNS: ClassVar[List[str]] = ["Response Time (s)"]
+
     def __init__(self, sequence_length: int, target_columns: List[str]):
         self.sequence_length = sequence_length
         self.target_columns = target_columns
         self.scalers: Dict[str, MinMaxScaler] = {}  # Used to invert the prediction
 
-    def run(self, csv_path: str, train_ratio: float = 0.9, split_strategy: str = "temporal") -> ServiceDatasets:
+    def run(
+        self,
+        csv_path: str,
+        train_ratio: float = 0.9,
+        split_strategy: str = "temporal",
+        test_csv_path: str | None = None,
+    ) -> ServiceDatasets:
         """
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
             {
@@ -55,15 +63,33 @@ class PerformanceDataPipeline:
                 "backend": ...
             }
 
-        Split strategy: 90/10 temporal split per service. The data is already time-ordered
-        from aggregation; the first floor(len * train_ratio) rows go to train, the rest to
-        test. This supports an interpolation experiment where the model trains on a
-        representative slice of the normal-workload dataset and evaluates on the held-out
-        portion.
+        Split strategies:
+        - "temporal": first floor(len * train_ratio) rows → train; rest → test.
+        - "interpolation": middle user-count value(s) held out as test set.
+        - "extrapolation": all rows from csv_path → train; all rows from test_csv_path → test.
+          Requires test_csv_path to be set.
         """
         df = self._load_data(csv_path)
         service_dfs = self._split_by_service(df)
         processed_datasets = {}
+
+        if split_strategy == "extrapolation":
+            if test_csv_path is None:
+                raise ValueError("test_csv_path is required when split_strategy='extrapolation'")
+            test_df = self._load_data(test_csv_path)
+            test_service_dfs = self._split_by_service(test_df)
+            paired = self._extrapolation_split(service_dfs, test_service_dfs)
+            for service_name, (train_raw, test_raw) in paired.items():
+                train_raw = self._add_delta_features(train_raw)
+                test_raw = self._add_delta_features(test_raw)
+                train_norm, test_norm = self._normalize_service(train_raw, test_raw, service_name)
+                X_train, y_train = self._create_windows(train_norm)
+                X_test, y_test = self._create_windows(test_norm)
+                processed_datasets[service_name] = {
+                    "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
+                    "test": TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
+                }
+            return processed_datasets
 
         for service_name, service_df in service_dfs.items():
             service_df = self._add_delta_features(service_df)
@@ -176,6 +202,37 @@ class PerformanceDataPipeline:
         )
         return train_df, test_df
 
+    def _extrapolation_split(
+        self,
+        train_service_dfs: Dict[str, pd.DataFrame],
+        test_service_dfs: Dict[str, pd.DataFrame],
+    ) -> Dict[str, Tuple[pd.DataFrame, pd.DataFrame]]:
+        """
+        Pairs per-service dataframes from two separate datasets (normal → train, overload → test).
+
+        Only services present in both datasets are included. Services missing from either side
+        are logged as warnings and dropped.
+        """
+        train_services = set(train_service_dfs.keys())
+        test_services = set(test_service_dfs.keys())
+        common = train_services & test_services
+        dropped = (train_services | test_services) - common
+        if dropped:
+            logger.warning(
+                f"Extrapolation split: dropping {len(dropped)} service(s) absent from one dataset: "
+                f"{sorted(dropped)}"
+            )
+        result: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]] = {}
+        for service_name in sorted(common):
+            train_df = train_service_dfs[service_name].copy()
+            test_df = test_service_dfs[service_name].copy()
+            logger.info(
+                f"[{service_name}] Extrapolation split: {len(train_df)} train rows (normal), "
+                f"{len(test_df)} test rows (overload)."
+            )
+            result[service_name] = (train_df, test_df)
+        return result
+
     def _normalize_service(
         self, train_df: pd.DataFrame, test_df: pd.DataFrame, service_name: str
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -185,6 +242,13 @@ class PerformanceDataPipeline:
         """
         numeric_train = train_df.select_dtypes(include=[np.number])
         numeric_test = test_df.select_dtypes(include=[np.number])
+
+        for col in self.LOG_TRANSFORM_COLUMNS:
+            if col in numeric_train.columns:
+                numeric_train = numeric_train.copy()
+                numeric_test = numeric_test.copy()
+                numeric_train[col] = np.log1p(numeric_train[col])
+                numeric_test[col] = np.log1p(numeric_test[col])
 
         scaler = MinMaxScaler()
         scaler.fit(numeric_train)

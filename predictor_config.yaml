@@ -1,5 +1,5 @@
 pipeline:
-  sequence_length: 3
+  sequence_length: 5
   train_ratio: 0.9
   split_strategy: interpolation
 

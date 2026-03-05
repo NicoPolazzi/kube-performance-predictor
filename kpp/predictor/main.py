@@ -198,6 +198,16 @@ def main() -> None:
             f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
         )
 
+    test_csv_path = (
+        "dataset/performance_results_overload.csv"
+        if config.pipeline.split_strategy == "extrapolation"
+        else None
+    )
+    if test_csv_path is not None and not Path(test_csv_path).exists():
+        raise FileNotFoundError(
+            f"Overload CSV data file not found: '{test_csv_path}'. Place your collected data file at this path."
+        )
+
     target_cols = [
         "Response Time (s)",
         "Throughput (req/s)",
@@ -209,6 +219,7 @@ def main() -> None:
         csv_path,
         train_ratio=config.pipeline.train_ratio,
         split_strategy=config.pipeline.split_strategy,
+        test_csv_path=test_csv_path,
     )
 
     # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
@@ -278,6 +289,7 @@ def main() -> None:
             scaler=service_scaler,
             target_columns=target_cols,
             feature_names=all_features,
+            log_transform_columns=PerformanceDataPipeline.LOG_TRANSFORM_COLUMNS,
         )
 
         target_indices = [all_features.index(col) for col in target_cols]
