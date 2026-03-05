@@ -98,6 +98,29 @@ def test_run_scaler_values_are_in_zero_one_range():
         assert float(y_test.max()) <= 2.0
 
 
+def test_run_interpolation_split_test_size_matches_held_out_rows():
+    # Fixture: 3 unique user counts [4, 6, 8], 11 rows each per service.
+    # train_ratio=0.9 → n_holdout=max(1, round(3*0.1))=1 → holdout=[6].
+    # Test split: 11 rows; with sequence_length=2 → 9 windows.
+    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    result = pipeline.run(str(FIXTURE_CSV), train_ratio=0.9, split_strategy="interpolation")
+    for service_data in result.values():
+        n_test = service_data["test"].tensors[0].shape[0]
+        assert n_test == 9  # 11 rows − sequence_length(2) = 9 windows
+
+
+def test_run_interpolation_split_raises_when_too_few_user_counts(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    # Keep only rows with a single user count so there are < 3 unique values
+    small_df = df[df["User Count"] == 4]
+    small_csv = tmp_path / "single_count.csv"
+    small_df.to_csv(small_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    with pytest.raises(ValueError, match="at least 3 unique user counts"):
+        pipeline.run(str(small_csv), split_strategy="interpolation")
+
+
 def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     df = pd.read_csv(FIXTURE_CSV)
     svc_df = df[df["Service"] == "adservice"].copy()

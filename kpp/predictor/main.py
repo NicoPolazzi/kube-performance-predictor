@@ -154,7 +154,7 @@ def main() -> None:
     setup_logging("predictor")
     config = PredictorConfig.from_yaml()
 
-    csv_path = "dataset/performance_results_medium.csv"
+    csv_path = "dataset/performance_results_normal.csv"
     if not Path(csv_path).exists():
         raise FileNotFoundError(
             f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
@@ -167,7 +167,7 @@ def main() -> None:
     ]
 
     pipeline = PerformanceDataPipeline(config.pipeline.sequence_length, target_cols)
-    datasets = pipeline.run(csv_path, train_ratio=config.pipeline.train_ratio)
+    datasets = pipeline.run(csv_path, train_ratio=config.pipeline.train_ratio, split_strategy=config.pipeline.split_strategy)
 
     # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
     all_features = [
@@ -188,10 +188,10 @@ def main() -> None:
         logger.info(f"Test Shape:  {test_dataset.tensors[0].shape}")
 
         train_loader = DataLoader(
-            train_dataset, batch_size=config.training.batch_size, shuffle=True, num_workers=2
+            train_dataset, batch_size=config.training.batch_size, shuffle=True, num_workers=0
         )
         test_loader = DataLoader(
-            test_dataset, batch_size=config.training.batch_size, shuffle=False, num_workers=2
+            test_dataset, batch_size=config.training.batch_size, shuffle=False, num_workers=0
         )
 
         output_size = train_dataset.tensors[1].shape[1]

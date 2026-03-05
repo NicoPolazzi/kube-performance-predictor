@@ -44,7 +44,7 @@ class PerformanceDataPipeline:
         self.target_columns = target_columns
         self.scalers: Dict[str, MinMaxScaler] = {}  # Used to invert the prediction
 
-    def run(self, csv_path: str, train_ratio: float = 0.9) -> ServiceDatasets:
+    def run(self, csv_path: str, train_ratio: float = 0.9, split_strategy: str = "temporal") -> ServiceDatasets:
         """
         Returns a nested dictionary where we save the splits of the dataset for each microservice:
             {
@@ -67,7 +67,10 @@ class PerformanceDataPipeline:
 
         for service_name, service_df in service_dfs.items():
             service_df = self._add_delta_features(service_df)
-            train_raw, test_raw = self._temporal_split(service_df, train_ratio, service_name)
+            if split_strategy == "interpolation":
+                train_raw, test_raw = self._interpolation_split(service_df, train_ratio, service_name)
+            else:
+                train_raw, test_raw = self._temporal_split(service_df, train_ratio, service_name)
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
             X_train, y_train = self._create_windows(train_df)
             X_test, y_test = self._create_windows(test_df)
@@ -138,6 +141,39 @@ class PerformanceDataPipeline:
             f"{len(train_df)} train, {len(test_df)} test rows."
         )
 
+        return train_df, test_df
+
+    def _interpolation_split(
+        self,
+        df: pd.DataFrame,
+        train_ratio: float,
+        service_name: str,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Holds out the middle user-count value(s) as the test set to measure interpolation ability.
+
+        Sorted unique user counts are computed; the middle n_holdout values are withheld.
+        This guarantees test samples fall strictly within the training range (interpolation,
+        not extrapolation). Requires at least 3 unique user counts.
+        """
+        sorted_counts = sorted(df["User Count"].unique())
+        n_unique = len(sorted_counts)
+        if n_unique < 3:
+            raise ValueError(
+                f"[{service_name}] Interpolation split requires at least 3 unique user counts, "
+                f"got {n_unique}: {sorted_counts}"
+            )
+        n_holdout = max(1, round(n_unique * (1 - train_ratio)))
+        start = (n_unique - n_holdout) // 2
+        holdout = set(sorted_counts[start : start + n_holdout])
+
+        train_df = df[~df["User Count"].isin(holdout)].copy()
+        test_df = df[df["User Count"].isin(holdout)].copy()
+
+        logger.info(
+            f"[{service_name}] Interpolation split: holdout user counts={sorted(holdout)}, "
+            f"{len(train_df)} train rows, {len(test_df)} test rows."
+        )
         return train_df, test_df
 
     def _normalize_service(

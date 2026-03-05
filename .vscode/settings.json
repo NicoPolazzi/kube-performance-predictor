@@ -14,8 +14,4 @@
     "--config-file=pyproject.toml"
   ],
   "mypy-type-checker.importStrategy": "fromEnvironment",
-  "sonarlint.connectedMode.project": {
-    "connectionId": "nicopolazzi-github",
-    "projectKey": "NicoPolazzi_kube-performance-predictor"
-  },
 }

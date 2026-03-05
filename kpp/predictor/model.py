@@ -48,7 +48,9 @@ def train_model(
     best_test_loss = float("inf")
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.003)
+    optimizer = optim.Adam(
+        model.parameters(), lr=learning_rate, weight_decay=config.training.weight_decay
+    )
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",

@@ -48,6 +48,7 @@ class CollectorConfig:
 class PipelineConfig:
     sequence_length: int
     train_ratio: float
+    split_strategy: str = "temporal"
 
 
 @dataclass(frozen=True)

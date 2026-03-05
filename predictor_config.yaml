@@ -1,17 +1,18 @@
 pipeline:
-  sequence_length: 5
+  sequence_length: 3
   train_ratio: 0.9
+  split_strategy: interpolation
 
 model:
-  hidden_size: 32
+  hidden_size: 64
 
 training:
   epochs: 200
   learning_rate: 0.001
   batch_size: 32
-  weight_decay: 0.001
+  weight_decay: 0.003
 
 scheduler:
   factor: 0.5
-  patience: 40
+  patience: 20
   min_lr: 0.000001
