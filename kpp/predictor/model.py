@@ -1,6 +1,5 @@
 import copy
 import logging
-from typing import cast
 
 import numpy as np
 import torch
@@ -21,18 +20,41 @@ class PerformanceModel(nn.Module):
         output_size: int,
         hidden_size: int = 128,
         hidden_size_2: int = 64,
+        head_hidden_size: int = 32,
     ):
         super().__init__()
-        self.net = nn.Sequential(
+
+        self.trunk = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(hidden_size, hidden_size_2),
-            nn.ReLU(),
-            nn.Linear(hidden_size_2, output_size),
+            nn.GELU(),
+        )
+
+        # Head 1: Response Time Specialization
+        self.head_rt = nn.Sequential(
+            nn.Linear(hidden_size_2, head_hidden_size), nn.GELU(), nn.Linear(head_hidden_size, 1)
+        )
+
+        # Head 2: Throughput Specialization
+        self.head_tp = nn.Sequential(
+            nn.Linear(hidden_size_2, head_hidden_size), nn.GELU(), nn.Linear(head_hidden_size, 1)
+        )
+
+        # Head 3: CPU Usage Specialization
+        self.head_cpu = nn.Sequential(
+            nn.Linear(hidden_size_2, head_hidden_size), nn.GELU(), nn.Linear(head_hidden_size, 1)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.net(x))  # x: (batch, features) — flat tabular input
+        shared_features = self.trunk(x)
+
+        out_rt = self.head_rt(shared_features)
+        out_tp = self.head_tp(shared_features)
+        out_cpu = self.head_cpu(shared_features)
+
+        # Concatenate along the feature dimension to return shape (batch, 3)
+        return torch.cat([out_rt, out_tp, out_cpu], dim=1)
 
 
 def train_model(
@@ -71,9 +93,18 @@ def train_model(
         for batch_x, batch_y in train_loader:
             optimizer.zero_grad()
             predictions = model(batch_x)
-            loss = criterion(predictions, batch_y)
+
+            loss_rt = criterion(predictions[:, 0], batch_y[:, 0])
+            loss_tp = criterion(predictions[:, 1], batch_y[:, 1])
+            loss_cpu = criterion(predictions[:, 2], batch_y[:, 2])
+            loss = loss_rt + loss_tp + loss_cpu
             loss.backward()
             optimizer.step()
+
+            # loss = criterion(predictions, batch_y)
+            # loss.backward()
+            # optimizer.step()
+
             train_loss += loss.item() * batch_x.size(0)
             train_total_samples += batch_x.size(0)
 
@@ -186,12 +217,17 @@ def evaluate(
         for col in log_transform_columns:
             if col in feature_names:
                 idx = feature_names.index(col)
-                real_predictions[:, idx] = np.expm1(real_predictions[:, idx])
-                real_targets[:, idx] = np.expm1(real_targets[:, idx])
+                real_predictions[:, idx] = (10 ** real_predictions[:, idx]) - 1e-9
+                real_targets[:, idx] = (10 ** real_targets[:, idx]) - 1e-9
+
+                real_predictions[:, idx] = np.maximum(real_predictions[:, idx], 0.0)
+                real_targets[:, idx] = np.maximum(real_targets[:, idx], 0.0)
 
     # Inverse-transform user counts via dummy array
     dummy_uc = np.zeros((len(user_counts_norm), num_features))
     dummy_uc[:, feature_user_count_idx] = user_counts_norm
-    user_counts_int = scaler.inverse_transform(dummy_uc)[:, feature_user_count_idx].round().astype(int)
+    user_counts_int = (
+        scaler.inverse_transform(dummy_uc)[:, feature_user_count_idx].round().astype(int)
+    )
 
     return real_predictions, real_targets, user_counts_int

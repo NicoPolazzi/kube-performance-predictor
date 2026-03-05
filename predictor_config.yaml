@@ -1,11 +1,11 @@
 pipeline:
-  sequence_length: 10
+  sequence_length: 1
   train_ratio: 0.9
-  split_strategy: extrapolation
+  split_strategy: interpolation
 
 model:
-  hidden_size: 128
-  hidden_size_2: 64
+  hidden_size: 256
+  hidden_size_2: 128
 
 training:
   epochs: 200

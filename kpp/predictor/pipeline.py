@@ -4,7 +4,7 @@ from typing import ClassVar, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import TensorDataset
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,9 @@ class PerformanceDataPipeline:
         for service_name, service_df in service_dfs.items():
             service_df = self._add_delta_features(service_df)
             if split_strategy == "interpolation":
-                train_raw, test_raw = self._interpolation_split(service_df, train_ratio, service_name)
+                train_raw, test_raw = self._interpolation_split(
+                    service_df, train_ratio, service_name
+                )
             else:
                 train_raw, test_raw = self._temporal_split(service_df, train_ratio, service_name)
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
@@ -248,10 +250,10 @@ class PerformanceDataPipeline:
             if col in numeric_train.columns:
                 numeric_train = numeric_train.copy()
                 numeric_test = numeric_test.copy()
-                numeric_train[col] = np.log1p(numeric_train[col])
-                numeric_test[col] = np.log1p(numeric_test[col])
+                numeric_train[col] = np.log10(numeric_train[col] + 1e-9)
+                numeric_test[col] = np.log10(numeric_test[col] + 1e-9)
 
-        scaler = MinMaxScaler()
+        scaler = StandardScaler()
         scaler.fit(numeric_train)
         self.scalers[service_name] = scaler
 
