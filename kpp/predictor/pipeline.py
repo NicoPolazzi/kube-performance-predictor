@@ -45,6 +45,7 @@ class PerformanceDataPipeline:
         self.sequence_length = sequence_length
         self.target_columns = target_columns
         self.scalers: Dict[str, MinMaxScaler] = {}  # Used to invert the prediction
+        self.input_columns: List[str] = []  # Non-target feature names, set by _create_samples
 
     def run(
         self,
@@ -83,8 +84,8 @@ class PerformanceDataPipeline:
                 train_raw = self._add_delta_features(train_raw)
                 test_raw = self._add_delta_features(test_raw)
                 train_norm, test_norm = self._normalize_service(train_raw, test_raw, service_name)
-                X_train, y_train = self._create_windows(train_norm)
-                X_test, y_test = self._create_windows(test_norm)
+                X_train, y_train = self._create_samples(train_norm)
+                X_test, y_test = self._create_samples(test_norm)
                 processed_datasets[service_name] = {
                     "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
                     "test": TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
@@ -98,8 +99,8 @@ class PerformanceDataPipeline:
             else:
                 train_raw, test_raw = self._temporal_split(service_df, train_ratio, service_name)
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
-            X_train, y_train = self._create_windows(train_df)
-            X_test, y_test = self._create_windows(test_df)
+            X_train, y_train = self._create_samples(train_df)
+            X_test, y_test = self._create_samples(test_df)
             processed_datasets[service_name] = {
                 "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
                 "test": TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
@@ -265,32 +266,19 @@ class PerformanceDataPipeline:
         )
         return train_normalized, test_normalized
 
-    def _create_windows(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def _create_samples(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         target_indices = df.columns.get_indexer(pd.Index(self.target_columns))
         missing_cols = [
             col for col, idx in zip(self.target_columns, target_indices, strict=True) if idx == -1
         ]
         if missing_cols:
-            raise ValueError(
-                f"Target columns not found in data: {missing_cols}. "
-                f"Available columns: {list(df.columns)}"
-            )
+            raise ValueError(f"Target columns not found in data: {missing_cols}.")
+
+        input_indices = [i for i in range(len(df.columns)) if i not in set(target_indices)]
+        self.input_columns = [df.columns[i] for i in input_indices]
 
         data = df.to_numpy(dtype=np.float32)
-        num_samples = len(data) - self.sequence_length
-        if num_samples <= 0:
-            raise ValueError(
-                f"Not enough data to create windows: {len(data)} rows with "
-                f"sequence_length={self.sequence_length}. Need at least {self.sequence_length + 1} rows."
-            )
+        if len(data) == 0:
+            raise ValueError("Not enough data to create samples.")
 
-        x_samples = []
-        y_samples = []
-
-        for i in range(num_samples):
-            x_sample = data[i : i + self.sequence_length]
-            y_sample = data[i + self.sequence_length, target_indices]
-            x_samples.append(x_sample)
-            y_samples.append(y_sample)
-
-        return np.array(x_samples), np.array(y_samples)
+        return data[:, input_indices], data[:, target_indices]

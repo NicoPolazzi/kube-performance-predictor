@@ -29,7 +29,8 @@ def compute_metrics(
         preds = real_predictions[:, idx]
         targets = real_targets[:, idx]
         mae = float(np.mean(np.abs(preds - targets)))
-        valid_mask = np.abs(targets) > 1e-6
+        threshold = max(1e-6, 0.01 * np.mean(np.abs(targets)))
+        valid_mask = np.abs(targets) > threshold
         if valid_mask.any():
             mape = float(
                 np.mean(np.abs((preds[valid_mask] - targets[valid_mask]) / targets[valid_mask]))
@@ -237,7 +238,7 @@ def main() -> None:
         train_dataset = data_split["train"]
         test_dataset = data_split["test"]
 
-        logger.info(f"Train Shape: {train_dataset.tensors[0].shape} (Samples, Window, Features)")
+        logger.info(f"Train Shape: {train_dataset.tensors[0].shape} (Samples, Features)")
         logger.info(f"Test Shape:  {test_dataset.tensors[0].shape}")
 
         train_loader = DataLoader(
@@ -248,11 +249,11 @@ def main() -> None:
         )
 
         output_size = train_dataset.tensors[1].shape[1]
-        flat_input_size = train_dataset.tensors[0].shape[1] * train_dataset.tensors[0].shape[2]
+        input_size = train_dataset.tensors[0].shape[1]
 
         logger.info(f"Training PerformanceModel for {service_name}...")
         model = PerformanceModel(
-            input_size=flat_input_size,
+            input_size=input_size,
             output_size=output_size,
             hidden_size=config.model.hidden_size,
             hidden_size_2=config.model.hidden_size_2,
@@ -280,6 +281,7 @@ def main() -> None:
             scaler=service_scaler,
             target_columns=target_cols,
             feature_names=all_features,
+            x_feature_names=pipeline.input_columns,
             log_transform_columns=PerformanceDataPipeline.LOG_TRANSFORM_COLUMNS,
         )
 

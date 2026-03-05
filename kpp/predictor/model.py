@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 class PerformanceModel(nn.Module):
     def __init__(
-        self, input_size: int, output_size: int, hidden_size: int = 128, hidden_size_2: int = 64
+        self,
+        input_size: int,
+        output_size: int,
+        hidden_size: int = 128,
+        hidden_size_2: int = 64,
     ):
         super().__init__()
         self.net = nn.Sequential(
@@ -28,8 +32,7 @@ class PerformanceModel(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, seq_len, input_size) — flatten full window
-        return cast(torch.Tensor, self.net(x.reshape(x.size(0), -1)))
+        return cast(torch.Tensor, self.net(x))  # x: (batch, features) — flat tabular input
 
 
 def train_model(
@@ -118,12 +121,17 @@ def evaluate(
     scaler: MinMaxScaler,
     target_columns: list[str],
     feature_names: list[str],
+    x_feature_names: list[str] | None = None,
     log_transform_columns: list[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Runs inference on the test set and inverts scaling.
 
     Returns (real_predictions, real_targets, user_counts_int) in original scale.
+
+    Args:
+        feature_names: Column names matching the scaler (all features, used for inverse transform).
+        x_feature_names: Column names of the model input tensor X. Defaults to feature_names.
     """
     missing_in_features = [col for col in target_columns if col not in feature_names]
     if missing_in_features:
@@ -141,7 +149,9 @@ def evaluate(
     if "User Count" not in feature_names:
         raise ValueError("'User Count' must be present in feature_names for x-axis grouping.")
 
-    user_count_idx = feature_names.index("User Count")
+    x_names = x_feature_names if x_feature_names is not None else feature_names
+    x_user_count_idx = x_names.index("User Count")
+    feature_user_count_idx = feature_names.index("User Count")
     num_features = len(feature_names)
 
     all_predictions = []
@@ -154,8 +164,8 @@ def evaluate(
             predictions = model(batch_x)
             all_predictions.append(predictions.cpu().numpy())
             all_targets.append(batch_y.cpu().numpy())
-            # Extract user count from the last timestep of each input window
-            all_user_counts_norm.append(batch_x[:, -1, user_count_idx].cpu().numpy())
+            # Extract user count from flat (batch, features) input
+            all_user_counts_norm.append(batch_x[:, x_user_count_idx].cpu().numpy())
 
     pred_array = np.concatenate(all_predictions, axis=0)
     target_array = np.concatenate(all_targets, axis=0)
@@ -181,7 +191,7 @@ def evaluate(
 
     # Inverse-transform user counts via dummy array
     dummy_uc = np.zeros((len(user_counts_norm), num_features))
-    dummy_uc[:, user_count_idx] = user_counts_norm
-    user_counts_int = scaler.inverse_transform(dummy_uc)[:, user_count_idx].round().astype(int)
+    dummy_uc[:, feature_user_count_idx] = user_counts_norm
+    user_counts_int = scaler.inverse_transform(dummy_uc)[:, feature_user_count_idx].round().astype(int)
 
     return real_predictions, real_targets, user_counts_int

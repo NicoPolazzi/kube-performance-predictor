@@ -44,11 +44,11 @@ def test_predictor_pipeline_meets_quality_gate(tmp_path, monkeypatch):
             test_dataset, batch_size=_CONFIG.training.batch_size, shuffle=False, num_workers=0
         )
 
-        flat_input_size = train_dataset.tensors[0].shape[1] * train_dataset.tensors[0].shape[2]
+        input_size = train_dataset.tensors[0].shape[1]  # flat features
         output_size = train_dataset.tensors[1].shape[1]
 
         model = PerformanceModel(
-            input_size=flat_input_size,
+            input_size=input_size,
             output_size=output_size,
             hidden_size=_CONFIG.model.hidden_size,
             hidden_size_2=_CONFIG.model.hidden_size_2,
@@ -85,6 +85,7 @@ def test_predictor_pipeline_meets_quality_gate(tmp_path, monkeypatch):
             scaler=scaler,
             target_columns=_TARGET_COLS,
             feature_names=all_features,
+            x_feature_names=list(pipeline.input_columns),
         )
 
         assert real_predictions.shape == real_targets.shape

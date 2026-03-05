@@ -14,9 +14,6 @@ FIXTURE_CSV = Path(__file__).parent / "fixtures/small_sample.csv"
 
 TARGET_COLUMNS = ["Response Time (s)", "Throughput (req/s)", "CPU Usage"]
 
-# The fixture has ~33 rows per service. With sequence_length=5 and train_ratio=0.9,
-# the test split gets only 4 rows — fewer than sequence_length+1. Use 0.7 for tests
-# that need the full pipeline to succeed.
 _TRAIN_RATIO = 0.7
 
 
@@ -26,14 +23,14 @@ def test_run_returns_dict_keyed_by_service():
     assert set(result.keys()) == {"adservice", "frontend"}
 
 
-def test_run_output_x_shape_is_samples_seqlen_features():
+def test_run_output_x_shape_is_samples_features():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         assert isinstance(service_data["train"], TensorDataset)
         X_train = service_data["train"].tensors[0]
-        assert X_train.ndim == 3
-        assert X_train.shape[1] == 5
+        assert X_train.ndim == 2
+        assert X_train.shape[1] == 6  # 9 total features (incl. "CPU Usage %" extra col) minus 3 targets
 
 
 def test_run_output_y_shape_is_samples_targets():
@@ -56,15 +53,18 @@ def test_run_raises_when_required_column_missing(tmp_path):
         pipeline.run(str(bad_csv))
 
 
-def test_run_raises_when_not_enough_rows_for_windows(tmp_path):
+def test_run_succeeds_with_minimal_rows(tmp_path):
+    """With tabular sampling, any number of rows > 0 produces samples (no window size constraint)."""
     df = pd.read_csv(FIXTURE_CSV)
     small_df = df[df["Service"] == "adservice"].head(3)
     small_csv = tmp_path / "tiny.csv"
     small_df.to_csv(small_csv, index=False)
 
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    with pytest.raises(ValueError, match="Not enough data"):
-        pipeline.run(str(small_csv))
+    result = pipeline.run(str(small_csv))
+    assert "adservice" in result
+    X_train = result["adservice"]["train"].tensors[0]
+    assert X_train.ndim == 2
 
 
 def test_run_temporal_split_train_larger_than_test():
@@ -105,12 +105,12 @@ def test_run_scaler_values_are_in_zero_one_range():
 def test_run_interpolation_split_test_size_matches_held_out_rows():
     # Fixture: 3 unique user counts [4, 6, 8], 11 rows each per service.
     # train_ratio=0.9 → n_holdout=max(1, round(3*0.1))=1 → holdout=[6].
-    # Test split: 11 rows; with sequence_length=2 → 9 windows.
+    # Test split: 11 rows; with tabular sampling → 11 samples directly.
     pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=0.9, split_strategy="interpolation")
     for service_data in result.values():
         n_test = service_data["test"].tensors[0].shape[0]
-        assert n_test == 9  # 11 rows − sequence_length(2) = 9 windows
+        assert n_test == 11  # 11 rows for the held-out user count → 11 tabular samples
 
 
 def test_run_interpolation_split_raises_when_too_few_user_counts(tmp_path):
@@ -192,11 +192,10 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     result = pipeline.run(str(dup_csv), train_ratio=_TRAIN_RATIO)
 
     # dup_df has len(svc_df) input rows for adservice; after merging the two same-minute
-    # rows into one, there are len(svc_df)-1 rows, so total windows must be strictly
-    # fewer than len(svc_df)-sequence_length (i.e., what non-merged input would yield)
+    # rows into one, there are len(svc_df)-1 rows → len(svc_df)-1 tabular samples total.
     n_train = result["adservice"]["train"].tensors[0].shape[0]
     n_test = result["adservice"]["test"].tensors[0].shape[0]
-    assert n_train + n_test < len(svc_df) - 5  # sequence_length=5
+    assert n_train + n_test == len(svc_df) - 1
 
 
 def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
@@ -239,8 +238,8 @@ def test_evaluate_inverts_log_transform_for_response_time():
     scaler.fit(train_data)
     normalized = scaler.transform(train_data)
 
-    # X: (n, seq_len=1, features=2), y: (n, 1) — normalized log response time
-    X = torch.tensor(normalized, dtype=torch.float32).unsqueeze(1)
+    # X: (n, features=2) — flat 2D tabular input
+    X = torch.tensor(normalized, dtype=torch.float32)
     y = torch.tensor(normalized[:, 1:2], dtype=torch.float32)
     loader = DataLoader(TensorDataset(X, y), batch_size=3, shuffle=False)
 
