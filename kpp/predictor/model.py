@@ -16,12 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class PerformanceModel(nn.Module):
-    def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
+    def __init__(self, input_size: int, output_size: int, hidden_size: int = 128, hidden_size_2: int = 64):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, output_size),
+            nn.Linear(hidden_size, hidden_size_2),
+            nn.ReLU(),
+            nn.Linear(hidden_size_2, output_size),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -101,6 +104,7 @@ def train_model(
                     {
                         "service": service_name,
                         "hidden_size": config.model.hidden_size,
+                        "hidden_size_2": config.model.hidden_size_2,
                         "best_test_loss": best_test_loss,
                     },
                     f,

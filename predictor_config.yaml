@@ -4,15 +4,16 @@ pipeline:
   split_strategy: interpolation
 
 model:
-  hidden_size: 64
+  hidden_size: 128
+  hidden_size_2: 64
 
 training:
   epochs: 200
   learning_rate: 0.001
   batch_size: 32
-  weight_decay: 0.003
+  weight_decay: 0.0005
 
 scheduler:
   factor: 0.5
-  patience: 20
+  patience: 40
   min_lr: 0.000001

@@ -22,14 +22,14 @@ def compute_metrics(
 ) -> dict[str, dict[str, float]]:
     """
     Returns {col_name: {"MAE": float, "MAPE": float}} for each target column.
-    MAPE skips samples where |true| <= 1e-10 to avoid division by zero.
+    MAPE skips samples where |true| <= 1e-6 to avoid division by zero.
     """
     metrics: dict[str, dict[str, float]] = {}
     for col_name, idx in zip(target_columns, target_indices, strict=True):
         preds = real_predictions[:, idx]
         targets = real_targets[:, idx]
         mae = float(np.mean(np.abs(preds - targets)))
-        valid_mask = np.abs(targets) > 1e-10
+        valid_mask = np.abs(targets) > 1e-6
         if valid_mask.any():
             mape = float(
                 np.mean(np.abs((preds[valid_mask] - targets[valid_mask]) / targets[valid_mask]))
@@ -90,8 +90,9 @@ def plot(
         col_metrics = metrics.get(col_name, {})
         mae = col_metrics.get("MAE", float("nan"))
         mape = col_metrics.get("MAPE", float("nan"))
-        ax.set_title(f"{service_name} - {col_name}  |  MAE: {mae:.4f}  |  MAPE: {mape:.2f}%")
+        ax.set_title(f"{service_name} - {col_name}  |  MAE: {mae:.6f}  |  MAPE: {mape:.2f}%")
         ax.set_ylabel(col_name)
+        ax.set_xticks(x)
         ax.legend()
         ax.grid(True, alpha=0.3)
 
@@ -111,7 +112,10 @@ def generate_metrics_table(
     all_metrics: dict[str, dict[str, dict[str, float]]],
     target_columns: list[str],
 ) -> None:
-    """Prints a table with rows=services and columns=MAE+MAPE per target metric."""
+    """Prints a table with rows=services and columns=MAE+MAPE per target metric.
+
+    Also writes an HTML version to plots/metrics_table.html for use in emails.
+    """
     if not all_metrics:
         logger.warning("No metrics to display.")
         return
@@ -145,9 +149,43 @@ def generate_metrics_table(
             col_metrics = all_metrics[service].get(col, {})
             mae = col_metrics.get("MAE", float("nan"))
             mape = col_metrics.get("MAPE", float("nan"))
-            row += f" {mae:>{col_width}.4f} |"
+            row += f" {mae:>{col_width}.6f} |"
             row += f" {mape:>{col_width}.2f} |"
         print(row)
+
+    # Write HTML version
+    th = "style='border:1px solid #ccc;padding:6px 10px;background:#f2f2f2'"
+    td_left = "style='border:1px solid #ccc;padding:6px 10px'"
+    td_right = "style='border:1px solid #ccc;padding:6px 10px;text-align:right'"
+
+    html_lines = [
+        "<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px'>",
+        "  <thead><tr>",
+        f"    <th {th}>Microservice</th>",
+    ]
+    for h in col_headers:
+        html_lines.append(f"    <th {th}>{h}</th>")
+    html_lines += ["  </tr></thead>", "  <tbody>"]
+
+    for i, service in enumerate(services):
+        bg = "" if i % 2 == 0 else " style='background:#f9f9f9'"
+        html_lines.append(f"  <tr{bg}>")
+        html_lines.append(f"    <td {td_left}>{service}</td>")
+        for col in target_columns:
+            col_metrics = all_metrics[service].get(col, {})
+            mae = col_metrics.get("MAE", float("nan"))
+            mape = col_metrics.get("MAPE", float("nan"))
+            html_lines.append(f"    <td {td_right}>{mae:.6f}</td>")
+            html_lines.append(f"    <td {td_right}>{mape:.2f}%</td>")
+        html_lines.append("  </tr>")
+
+    html_lines += ["  </tbody>", "</table>"]
+
+    output_dir = Path("plots")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    html_path = output_dir / "metrics_table.html"
+    html_path.write_text("\n".join(html_lines))
+    logger.info(f"HTML metrics table saved to {html_path}")
 
 
 def main() -> None:
@@ -167,7 +205,11 @@ def main() -> None:
     ]
 
     pipeline = PerformanceDataPipeline(config.pipeline.sequence_length, target_cols)
-    datasets = pipeline.run(csv_path, train_ratio=config.pipeline.train_ratio, split_strategy=config.pipeline.split_strategy)
+    datasets = pipeline.run(
+        csv_path,
+        train_ratio=config.pipeline.train_ratio,
+        split_strategy=config.pipeline.split_strategy,
+    )
 
     # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
     all_features = [
@@ -202,6 +244,7 @@ def main() -> None:
             input_size=flat_input_size,
             output_size=output_size,
             hidden_size=config.model.hidden_size,
+            hidden_size_2=config.model.hidden_size_2,
         )
         train_model(
             config,

@@ -14,7 +14,7 @@ _FIXTURE = Path(__file__).parent.parent / "predictor" / "fixtures" / "small_samp
 # Use fast settings so the e2e test is quick (< 30 s) but still exercises the full path.
 _CONFIG = PredictorConfig(
     pipeline=PipelineConfig(sequence_length=3, train_ratio=0.7),
-    model=ModelConfig(hidden_size=16),
+    model=ModelConfig(hidden_size=16, hidden_size_2=8),
     training=TrainingConfig(epochs=20, learning_rate=0.01, batch_size=8, weight_decay=0.001),
     scheduler=SchedulerConfig(factor=0.5, patience=5, min_lr=1e-6),
 )
@@ -53,6 +53,7 @@ def test_predictor_pipeline_meets_quality_gate(tmp_path, monkeypatch):
             input_size=flat_input_size,
             output_size=output_size,
             hidden_size=_CONFIG.model.hidden_size,
+            hidden_size_2=_CONFIG.model.hidden_size_2,
         )
         train_model(
             config=_CONFIG,

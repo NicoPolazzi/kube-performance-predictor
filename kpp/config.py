@@ -54,6 +54,7 @@ class PipelineConfig:
 @dataclass(frozen=True)
 class ModelConfig:
     hidden_size: int
+    hidden_size_2: int = 64
 
 
 @dataclass(frozen=True)
