@@ -173,7 +173,7 @@ def test_evaluate_returns_user_counts_as_integers():
     assert np.issubdtype(user_counts_int.dtype, np.integer)
 
 
-def test_train_model_saves_checkpoint(tmp_path, monkeypatch):
+def test_train_model_restores_best_weights_in_memory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     rng = np.random.default_rng(42)
@@ -208,4 +208,5 @@ def test_train_model_saves_checkpoint(tmp_path, monkeypatch):
         epochs=1,
     )
 
-    assert (tmp_path / "models" / "frontend.pth").exists()
+    assert not (tmp_path / "models").exists()
+    assert model.training is False

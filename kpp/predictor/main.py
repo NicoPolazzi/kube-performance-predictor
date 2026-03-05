@@ -1,9 +1,9 @@
 import logging
+import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
@@ -267,15 +267,6 @@ def main() -> None:
             learning_rate=config.training.learning_rate,
         )
 
-        logger.info(f"Loading the best saved model weights for {service_name}...")
-        model_path = Path("models") / f"{service_name}.pth"
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"Model file not found: {model_path}. Training may not have saved a checkpoint "
-                f"(no epoch improved on the historical best)."
-            )
-        model.load_state_dict(torch.load(model_path, weights_only=True))
-
         logger.info(f"Evaluating and plotting {service_name}...")
 
         service_scaler = pipeline.scalers.get(service_name)
@@ -307,6 +298,11 @@ def main() -> None:
             service_name=service_name,
             metrics=service_metrics,
         )
+
+    models_dir = Path("models")
+    if models_dir.exists():
+        shutil.rmtree(models_dir)
+        logger.info("Cleaned up models/ directory.")
 
     generate_metrics_table(all_metrics, target_cols)
 

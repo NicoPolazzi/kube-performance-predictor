@@ -8,7 +8,7 @@ model:
   hidden_size_2: 64
 
 training:
-  epochs: 200
+  epochs: 300
   learning_rate: 0.001
   batch_size: 32
   weight_decay: 0.0005

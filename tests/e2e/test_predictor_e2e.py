@@ -1,8 +1,6 @@
-import json
 from pathlib import Path
 
 import numpy as np
-import torch
 from torch.utils.data import DataLoader
 
 from kpp.config import ModelConfig, PipelineConfig, PredictorConfig, SchedulerConfig, TrainingConfig
@@ -55,7 +53,7 @@ def test_predictor_pipeline_meets_quality_gate(tmp_path, monkeypatch):
             hidden_size=_CONFIG.model.hidden_size,
             hidden_size_2=_CONFIG.model.hidden_size_2,
         )
-        train_model(
+        best_test_loss = train_model(
             config=_CONFIG,
             service_name=service_name,
             model=model,
@@ -65,16 +63,10 @@ def test_predictor_pipeline_meets_quality_gate(tmp_path, monkeypatch):
             learning_rate=_CONFIG.training.learning_rate,
         )
 
-        # --- Output file assertions ---
-        model_path = tmp_path / "models" / f"{service_name}.pth"
-        config_path = tmp_path / "models" / f"config_{service_name}.json"
-        assert model_path.exists(), f"Model weights not saved for {service_name}"
-        assert config_path.exists(), f"Model config not saved for {service_name}"
+        # --- No disk artefacts should be created ---
+        assert not (tmp_path / "models").exists(), "models/ directory should not be created"
 
-        # --- Quality gate: best_test_loss from saved config ---
-        with open(config_path) as f:
-            saved = json.load(f)
-        best_test_loss = saved["best_test_loss"]
+        # --- Quality gate ---
         assert best_test_loss < _MSE_CEILING, (
             f"Quality gate failed for '{service_name}': "
             f"best_test_loss={best_test_loss:.4f} >= {_MSE_CEILING} "
@@ -82,7 +74,6 @@ def test_predictor_pipeline_meets_quality_gate(tmp_path, monkeypatch):
         )
 
         # --- Evaluate: predictions must be finite ---
-        model.load_state_dict(torch.load(model_path, weights_only=True))
         scaler = pipeline.scalers[service_name]
         # Derive feature names from the scaler so the list matches the pipeline output
         # exactly (the fixture CSV has an extra "CPU Usage %" column not in REQUIRED_COLUMNS).

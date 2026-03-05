@@ -1,6 +1,5 @@
-import json
+import copy
 import logging
-from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -41,15 +40,11 @@ def train_model(
     test_loader: DataLoader,
     epochs: int = 50,
     learning_rate: float = 0.001,
-) -> None:
-    """Trains a PerformanceModel and saves best weights."""
-    out_dir = Path("models")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model_path = out_dir / f"{service_name}.pth"
-    config_path = out_dir / f"config_{service_name}.json"
-
+) -> float:
+    """Trains a PerformanceModel, restores best weights in memory, and returns best test loss."""
     torch.manual_seed(42)
     best_test_loss = float("inf")
+    best_state_dict = None
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(
@@ -99,18 +94,7 @@ def train_model(
 
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            torch.save(model.state_dict(), model_path)
-            with open(config_path, "w") as f:
-                json.dump(
-                    {
-                        "service": service_name,
-                        "hidden_size": config.model.hidden_size,
-                        "hidden_size_2": config.model.hidden_size_2,
-                        "best_test_loss": best_test_loss,
-                    },
-                    f,
-                    indent=4,
-                )
+            best_state_dict = copy.deepcopy(model.state_dict())
 
         train_rmse = np.sqrt(train_loss)
         test_rmse = np.sqrt(test_loss)
@@ -122,7 +106,10 @@ def train_model(
                 f"Epoch [{epoch + 1}/{epochs}] | LR: {current_lr:.6f} | Train RMSE: {train_rmse:.4f} | Test RMSE: {test_rmse:.4f}"
             )
 
-    logger.info(f"Training complete. Best model weights saved to: {model_path}")
+    if best_state_dict is not None:
+        model.load_state_dict(best_state_dict)
+    logger.info("Training complete. Best weights restored into model.")
+    return best_test_loss
 
 
 def evaluate(
