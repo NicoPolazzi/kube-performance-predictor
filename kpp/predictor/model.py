@@ -20,7 +20,7 @@ class PerformanceModel(nn.Module):
         output_size: int,
         hidden_size: int = 128,
         hidden_size_2: int = 64,
-        head_hidden_size: int = 32,
+        head_hidden_size: int = 64,
     ):
         super().__init__()
 

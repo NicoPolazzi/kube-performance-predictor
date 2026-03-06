@@ -37,8 +37,6 @@ class PerformanceDataPipeline:
         "CPU Request",
     ]
 
-    DELTA_COLUMNS = ["Δ User Count", "Δ Throughput (req/s)"]
-
     LOG_TRANSFORM_COLUMNS: ClassVar[List[str]] = ["Response Time (s)"]
 
     def __init__(self, sequence_length: int, target_columns: List[str]):
@@ -81,8 +79,8 @@ class PerformanceDataPipeline:
             test_service_dfs = self._split_by_service(test_df)
             paired = self._extrapolation_split(service_dfs, test_service_dfs)
             for service_name, (train_raw, test_raw) in paired.items():
-                train_raw = self._add_delta_features(train_raw)
-                test_raw = self._add_delta_features(test_raw)
+                # train_raw = self._add_ratio_features(train_raw)
+                # test_raw = self._add_ratio_features(test_raw)
                 train_norm, test_norm = self._normalize_service(train_raw, test_raw, service_name)
                 X_train, y_train = self._create_samples(train_norm)
                 X_test, y_test = self._create_samples(test_norm)
@@ -93,7 +91,7 @@ class PerformanceDataPipeline:
             return processed_datasets
 
         for service_name, service_df in service_dfs.items():
-            service_df = self._add_delta_features(service_df)
+            # service_df = self._add_ratio_features(service_df)
             if split_strategy == "interpolation":
                 train_raw, test_raw = self._interpolation_split(
                     service_df, train_ratio, service_name
@@ -143,10 +141,10 @@ class PerformanceDataPipeline:
     def _split_by_service(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         return {str(service): group.copy() for service, group in df.groupby("Service")}
 
-    def _add_delta_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _add_ratio_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        df["Δ User Count"] = df["User Count"].diff().fillna(0)
-        df["Δ Throughput (req/s)"] = df[self.THROUGHPUT_COL].diff().fillna(0)
+        df["Load per Replica"] = df["User Count"] / df["Replicas"]
+        df["CPU per User"] = (df["CPU Request"] * df["Replicas"]) / df["User Count"]
         return df
 
     def _temporal_split(

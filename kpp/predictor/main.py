@@ -228,7 +228,7 @@ def main() -> None:
         col
         for col in PerformanceDataPipeline.REQUIRED_COLUMNS
         if col not in ("Timestamp", "Service")
-    ] + PerformanceDataPipeline.DELTA_COLUMNS
+    ]
 
     all_metrics: dict[str, dict[str, dict[str, float]]] = {}
 
@@ -257,6 +257,7 @@ def main() -> None:
             output_size=output_size,
             hidden_size=config.model.hidden_size,
             hidden_size_2=config.model.hidden_size_2,
+            head_hidden_size=config.model.head_hidden_size,
         )
         train_model(
             config,

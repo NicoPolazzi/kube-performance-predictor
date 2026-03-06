@@ -51,13 +51,14 @@ class PipelineConfig:
     split_strategy: str = "temporal"
 
 
-@dataclass(frozen=True)
+@dataclass
 class ModelConfig:
     hidden_size: int
-    hidden_size_2: int = 64
+    hidden_size_2: int
+    head_hidden_size: int = 32
 
 
-@dataclass(frozen=True)
+@dataclass
 class TrainingConfig:
     epochs: int
     learning_rate: float
