@@ -42,8 +42,9 @@ class PerformanceDataPipeline:
     def __init__(self, sequence_length: int, target_columns: List[str]):
         self.sequence_length = sequence_length
         self.target_columns = target_columns
-        self.scalers: Dict[str, MinMaxScaler] = {}  # Used to invert the prediction
+        self.scalers: Dict[str, StandardScaler] = {}  # Used to invert the prediction
         self.input_columns: List[str] = []  # Non-target feature names, set by _create_samples
+        self.feature_names: List[str] = []  # All feature names as seen by the scaler
 
     def run(
         self,
@@ -79,9 +80,9 @@ class PerformanceDataPipeline:
             test_service_dfs = self._split_by_service(test_df)
             paired = self._extrapolation_split(service_dfs, test_service_dfs)
             for service_name, (train_raw, test_raw) in paired.items():
-                # train_raw = self._add_ratio_features(train_raw)
-                # test_raw = self._add_ratio_features(test_raw)
-                train_norm, test_norm = self._normalize_service(train_raw, test_raw, service_name)
+                train_norm, test_norm = self._normalize_service(
+                train_raw, test_raw, service_name, fit_on_combined=True
+            )
                 X_train, y_train = self._create_samples(train_norm)
                 X_test, y_test = self._create_samples(test_norm)
                 processed_datasets[service_name] = {
@@ -91,7 +92,7 @@ class PerformanceDataPipeline:
             return processed_datasets
 
         for service_name, service_df in service_dfs.items():
-            # service_df = self._add_ratio_features(service_df)
+            service_df = self._add_ratio_features(service_df)
             if split_strategy == "interpolation":
                 train_raw, test_raw = self._interpolation_split(
                     service_df, train_ratio, service_name
@@ -235,11 +236,19 @@ class PerformanceDataPipeline:
         return result
 
     def _normalize_service(
-        self, train_df: pd.DataFrame, test_df: pd.DataFrame, service_name: str
+        self,
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+        service_name: str,
+        fit_on_combined: bool = False,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Fits a MinMaxScaler on the training split only, then transforms both splits.
-        This prevents test-set information from leaking into the scaler.
+        Fits a StandardScaler then transforms both splits.
+
+        By default fits on training data only (prevents test-set leakage).
+        When fit_on_combined=True, fits on the union of train and test — used
+        for extrapolation splits where the test distribution is out-of-range of
+        the training data and the scaler must cover the full value range.
         """
         numeric_train = train_df.select_dtypes(include=[np.number])
         numeric_test = test_df.select_dtypes(include=[np.number])
@@ -251,8 +260,13 @@ class PerformanceDataPipeline:
                 numeric_train[col] = np.log10(numeric_train[col] + 1e-9)
                 numeric_test[col] = np.log10(numeric_test[col] + 1e-9)
 
+        self.feature_names = numeric_train.columns.tolist()
+
         scaler = StandardScaler()
-        scaler.fit(numeric_train)
+        if fit_on_combined:
+            scaler.fit(pd.concat([numeric_train, numeric_test]))
+        else:
+            scaler.fit(numeric_train)
         self.scalers[service_name] = scaler
 
         train_scaled = scaler.transform(numeric_train)

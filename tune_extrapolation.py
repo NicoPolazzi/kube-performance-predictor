@@ -17,6 +17,7 @@ def objective(trial: optuna.Trial, config: PredictorConfig, datasets: dict) -> f
     trial_hidden_size = trial.suggest_categorical("hidden_size", [64, 128, 256, 512])
     trial_hidden_size_2 = trial.suggest_categorical("hidden_size_2", [32, 64, 128, 256])
     trial_head_hidden_size = trial.suggest_categorical("head_hidden_size", [16, 32, 64, 128])
+    trial_dropout = trial.suggest_float("dropout", 0.0, 0.5)
 
     if trial_hidden_size_2 > trial_hidden_size:
         raise optuna.TrialPruned()
@@ -51,6 +52,7 @@ def objective(trial: optuna.Trial, config: PredictorConfig, datasets: dict) -> f
             hidden_size=trial_hidden_size,
             hidden_size_2=trial_hidden_size_2,
             head_hidden_size=trial_head_hidden_size,
+            dropout=trial_dropout,
         )
 
         # We can use fewer epochs during tuning to save time (e.g., 50 instead of 200)

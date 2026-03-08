@@ -56,6 +56,7 @@ class ModelConfig:
     hidden_size: int
     hidden_size_2: int
     head_hidden_size: int = 32
+    dropout: float = 0.0
 
 
 @dataclass

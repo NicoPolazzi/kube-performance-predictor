@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 from kpp.predictor.model import evaluate
@@ -82,24 +82,17 @@ def test_run_stores_scalers_for_each_service():
     assert set(pipeline.scalers.keys()) == set(result.keys())
 
 
-def test_run_scaler_values_are_in_zero_one_range():
+def test_run_normalizes_training_data_with_standard_scaler():
     pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         X_train = service_data["train"].tensors[0]
         y_train = service_data["train"].tensors[1]
-        assert float(X_train.min()) >= -1e-6
-        assert float(X_train.max()) <= 1.0 + 1e-6
-        assert float(y_train.min()) >= -1e-6
-        assert float(y_train.max()) <= 1.0 + 1e-6
-        # Test set is transformed by the same scaler; values may slightly exceed [0,1]
-        # if test distribution differs from train, but should be well within [-0.5, 1.5]
-        X_test = service_data["test"].tensors[0]
-        y_test = service_data["test"].tensors[1]
-        assert float(X_test.min()) >= -0.5
-        assert float(X_test.max()) <= 2.0
-        assert float(y_test.min()) >= -0.5
-        assert float(y_test.max()) <= 2.0
+        # StandardScaler: values centered near 0, std ≈ 1; most values within ~5 stds
+        assert float(X_train.min()) > -5.0
+        assert float(X_train.max()) < 5.0
+        assert float(y_train.min()) > -5.0
+        assert float(y_train.max()) < 5.0
 
 
 def test_run_interpolation_split_test_size_matches_held_out_rows():
@@ -222,19 +215,22 @@ def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
 
     scaler = pipeline.scalers["svc"]
     rt_col_idx = list(scaler.feature_names_in_).index("Response Time (s)")
-    assert abs(scaler.data_max_[rt_col_idx] - np.log1p(max_rt)) < 1e-6
+    # First 7 rows are training data (train_ratio=0.7); verify scaler was fitted on log10 values
+    train_rt = rt_values[:7]
+    expected_mean = float(np.mean(np.log10(np.array(train_rt) + 1e-9)))
+    assert abs(scaler.mean_[rt_col_idx] - expected_mean) < 1e-3
 
 
 def test_evaluate_inverts_log_transform_for_response_time():
-    # Set up a scaler fitted on log-space values for two features: User Count + Response Time.
+    # Set up a scaler fitted on log10-space values for two features: User Count + Response Time.
     feature_names = ["User Count", "Response Time (s)"]
     target_columns = ["Response Time (s)"]
     original_rt = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-    log_rt = np.log1p(original_rt)
+    log_rt = np.log10(original_rt + 1e-9)
     user_counts = np.array([10.0, 20.0, 30.0])
 
     train_data = np.column_stack([user_counts, log_rt]).astype(np.float32)
-    scaler = MinMaxScaler()
+    scaler = StandardScaler()
     scaler.fit(train_data)
     normalized = scaler.transform(train_data)
 

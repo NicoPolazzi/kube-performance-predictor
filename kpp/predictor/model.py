@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
@@ -21,14 +21,17 @@ class PerformanceModel(nn.Module):
         hidden_size: int = 128,
         hidden_size_2: int = 64,
         head_hidden_size: int = 64,
+        dropout: float = 0.0,
     ):
         super().__init__()
 
         self.trunk = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_size, hidden_size_2),
             nn.GELU(),
+            nn.Dropout(dropout),
         )
 
         # Head 1: Response Time Specialization
@@ -149,7 +152,7 @@ def train_model(
 def evaluate(
     model: torch.nn.Module,
     test_loader: DataLoader,
-    scaler: MinMaxScaler,
+    scaler: StandardScaler,
     target_columns: list[str],
     feature_names: list[str],
     x_feature_names: list[str] | None = None,

@@ -223,12 +223,7 @@ def main() -> None:
         test_csv_path=test_csv_path,
     )
 
-    # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
-    all_features = [
-        col
-        for col in PerformanceDataPipeline.REQUIRED_COLUMNS
-        if col not in ("Timestamp", "Service")
-    ]
+    all_features = pipeline.feature_names
 
     all_metrics: dict[str, dict[str, dict[str, float]]] = {}
 
@@ -258,6 +253,7 @@ def main() -> None:
             hidden_size=config.model.hidden_size,
             hidden_size_2=config.model.hidden_size_2,
             head_hidden_size=config.model.head_hidden_size,
+            dropout=config.model.dropout,
         )
         train_model(
             config,
