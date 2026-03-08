@@ -71,7 +71,7 @@ testpaths = ["tests/collector", "tests/predictor"]
 addopts = "--cov=kpp --cov-report=term-missing --cov-report=xml --cov-fail-under=80"
 
 [tool.coverage.run]
-omit = ["kpp/config.py", "kpp/**/__init__.py", "kpp/collector/sample.py", "kpp/logging_config.py", "kpp/predictor/main.py", "kpp/collector/collector.py"]
+omit = ["kpp/config.py", "kpp/**/__init__.py", "kpp/collector/sample.py", "kpp/logging_config.py", "kpp/predictor/main.py", "kpp/collector/main.py"]
 
 [tool.poe.tasks]
 lint  = "ruff check ."
