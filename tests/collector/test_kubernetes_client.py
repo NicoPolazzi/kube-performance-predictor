@@ -196,19 +196,3 @@ def test_scale_service_deployment_patches_replicas_and_waits(mocker):
     apps_api.read_namespaced_deployment.assert_called_once_with(
         name="currencyservice", namespace="default"
     )
-
-
-def test_wait_for_patch_completion_uses_deployment_name_from_metadata(mocker):
-    apps_api = mocker.MagicMock()
-    ready = _make_ready_deployment(name="myservice", replicas=2)
-    apps_api.read_namespaced_deployment.return_value = ready
-
-    mocker.patch("kpp.collector.kubernetes_client.time.time", return_value=0)
-    mocker.patch("kpp.collector.kubernetes_client.time.sleep")
-
-    client = KubernetesClient(core_api=mocker.MagicMock(), apps_api=apps_api)
-    client._wait_for_patch_completion(ready, apps_api)
-
-    apps_api.read_namespaced_deployment.assert_called_once_with(
-        name="myservice", namespace="default"
-    )

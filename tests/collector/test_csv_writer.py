@@ -42,3 +42,16 @@ def test_write_samples_when_empty_samples_writes_only_header(writer):
     rows = _read_csv(writer.filename)
     assert len(rows) == 1
     assert rows[0] == HEADERS
+
+
+def test_write_samples_appends_multiple_calls(tmp_path):
+    writer = CsvWriter(dataset_dir=tmp_path)
+    batch1 = [PerformanceSample("svc-a", 0.1, 5.0, 0.2, 2, 0.5)]
+    batch2 = [
+        PerformanceSample("svc-b", 0.2, 10.0, 0.4, 1, 1.0),
+        PerformanceSample("svc-c", 0.3, 15.0, 0.6, 3, 2.0),
+    ]
+    writer.write_samples(batch1, user_count=10, timestamp=1000.0)
+    writer.write_samples(batch2, user_count=20, timestamp=2000.0)
+    rows = _read_csv(writer.filename)
+    assert len(rows) == 4  # header + 1 row from batch1 + 2 rows from batch2

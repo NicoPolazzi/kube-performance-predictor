@@ -1,13 +1,11 @@
-import json
+import copy
 import logging
-from pathlib import Path
-from typing import cast
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
@@ -16,17 +14,50 @@ logger = logging.getLogger(__name__)
 
 
 class PerformanceModel(nn.Module):
-    def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        hidden_size: int = 128,
+        hidden_size_2: int = 64,
+        head_hidden_size: int = 64,
+        dropout: float = 0.0,
+    ):
         super().__init__()
-        self.net = nn.Sequential(
+
+        self.trunk = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, output_size),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, hidden_size_2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+
+        # Head 1: Response Time Specialization
+        self.head_rt = nn.Sequential(
+            nn.Linear(hidden_size_2, head_hidden_size), nn.GELU(), nn.Linear(head_hidden_size, 1)
+        )
+
+        # Head 2: Throughput Specialization
+        self.head_tp = nn.Sequential(
+            nn.Linear(hidden_size_2, head_hidden_size), nn.GELU(), nn.Linear(head_hidden_size, 1)
+        )
+
+        # Head 3: CPU Usage Specialization
+        self.head_cpu = nn.Sequential(
+            nn.Linear(hidden_size_2, head_hidden_size), nn.GELU(), nn.Linear(head_hidden_size, 1)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, seq_len, input_size) — flatten full window
-        return cast(torch.Tensor, self.net(x.reshape(x.size(0), -1)))
+        shared_features = self.trunk(x)
+
+        out_rt = self.head_rt(shared_features)
+        out_tp = self.head_tp(shared_features)
+        out_cpu = self.head_cpu(shared_features)
+
+        # Concatenate along the feature dimension to return shape (batch, 3)
+        return torch.cat([out_rt, out_tp, out_cpu], dim=1)
 
 
 def train_model(
@@ -37,17 +68,16 @@ def train_model(
     test_loader: DataLoader,
     epochs: int = 50,
     learning_rate: float = 0.001,
-) -> None:
-    """Trains a PerformanceModel and saves best weights."""
-    out_dir = Path("models")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model_path = out_dir / f"{service_name}.pth"
-    config_path = out_dir / f"config_{service_name}.json"
-
+) -> float:
+    """Trains a PerformanceModel, restores best weights in memory, and returns best test loss."""
+    torch.manual_seed(42)
     best_test_loss = float("inf")
+    best_state_dict = None
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(
+        model.parameters(), lr=learning_rate, weight_decay=config.training.weight_decay
+    )
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -63,14 +93,23 @@ def train_model(
         test_total_samples = 0
 
         model.train()
-        for batch_X, batch_y in train_loader:
+        for batch_x, batch_y in train_loader:
             optimizer.zero_grad()
-            predictions = model(batch_X)
-            loss = criterion(predictions, batch_y)
+            predictions = model(batch_x)
+
+            loss_rt = criterion(predictions[:, 0], batch_y[:, 0])
+            loss_tp = criterion(predictions[:, 1], batch_y[:, 1])
+            loss_cpu = criterion(predictions[:, 2], batch_y[:, 2])
+            loss = loss_rt + loss_tp + loss_cpu
             loss.backward()
             optimizer.step()
-            train_loss += loss.item() * batch_X.size(0)
-            train_total_samples += batch_X.size(0)
+
+            # loss = criterion(predictions, batch_y)
+            # loss.backward()
+            # optimizer.step()
+
+            train_loss += loss.item() * batch_x.size(0)
+            train_total_samples += batch_x.size(0)
 
         if train_total_samples == 0:
             raise RuntimeError(f"No training samples found for {service_name}.")
@@ -78,11 +117,11 @@ def train_model(
 
         model.eval()
         with torch.no_grad():
-            for batch_X, batch_y in test_loader:
-                predictions = model(batch_X)
+            for batch_x, batch_y in test_loader:
+                predictions = model(batch_x)
                 loss = criterion(predictions, batch_y)
-                test_loss += loss.item() * batch_X.size(0)
-                test_total_samples += batch_X.size(0)
+                test_loss += loss.item() * batch_x.size(0)
+                test_total_samples += batch_x.size(0)
 
         if test_total_samples == 0:
             raise RuntimeError(f"No test samples found for {service_name}.")
@@ -92,17 +131,7 @@ def train_model(
 
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            torch.save(model.state_dict(), model_path)
-            with open(config_path, "w") as f:
-                json.dump(
-                    {
-                        "service": service_name,
-                        "hidden_size": config.model.hidden_size,
-                        "best_test_loss": best_test_loss,
-                    },
-                    f,
-                    indent=4,
-                )
+            best_state_dict = copy.deepcopy(model.state_dict())
 
         train_rmse = np.sqrt(train_loss)
         test_rmse = np.sqrt(test_loss)
@@ -114,21 +143,29 @@ def train_model(
                 f"Epoch [{epoch + 1}/{epochs}] | LR: {current_lr:.6f} | Train RMSE: {train_rmse:.4f} | Test RMSE: {test_rmse:.4f}"
             )
 
-    logger.info(f"Training complete. Best model weights saved to: {model_path}")
+    if best_state_dict is not None:
+        model.load_state_dict(best_state_dict)
+    logger.info("Training complete. Best weights restored into model.")
+    return best_test_loss
 
 
 def evaluate(
     model: torch.nn.Module,
     test_loader: DataLoader,
-    scaler: MinMaxScaler,
+    scaler: StandardScaler,
     target_columns: list[str],
     feature_names: list[str],
+    x_feature_names: list[str] | None = None,
+    log_transform_columns: list[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Runs inference on the test set and inverts scaling.
 
     Returns (real_predictions, real_targets, user_counts_int) in original scale.
-    Pure computation — no I/O or plotting.
+
+    Args:
+        feature_names: Column names matching the scaler (all features, used for inverse transform).
+        x_feature_names: Column names of the model input tensor X. Defaults to feature_names.
     """
     missing_in_features = [col for col in target_columns if col not in feature_names]
     if missing_in_features:
@@ -146,7 +183,9 @@ def evaluate(
     if "User Count" not in feature_names:
         raise ValueError("'User Count' must be present in feature_names for x-axis grouping.")
 
-    user_count_idx = feature_names.index("User Count")
+    x_names = x_feature_names if x_feature_names is not None else feature_names
+    x_user_count_idx = x_names.index("User Count")
+    feature_user_count_idx = feature_names.index("User Count")
     num_features = len(feature_names)
 
     all_predictions = []
@@ -155,12 +194,12 @@ def evaluate(
 
     model.eval()
     with torch.no_grad():
-        for batch_X, batch_y in test_loader:
-            predictions = model(batch_X)
+        for batch_x, batch_y in test_loader:
+            predictions = model(batch_x)
             all_predictions.append(predictions.cpu().numpy())
             all_targets.append(batch_y.cpu().numpy())
-            # Extract user count from the last timestep of each input window
-            all_user_counts_norm.append(batch_X[:, -1, user_count_idx].cpu().numpy())
+            # Extract user count from flat (batch, features) input
+            all_user_counts_norm.append(batch_x[:, x_user_count_idx].cpu().numpy())
 
     pred_array = np.concatenate(all_predictions, axis=0)
     target_array = np.concatenate(all_targets, axis=0)
@@ -177,9 +216,21 @@ def evaluate(
     real_predictions = scaler.inverse_transform(dummy_pred)
     real_targets = scaler.inverse_transform(dummy_target)
 
+    if log_transform_columns:
+        for col in log_transform_columns:
+            if col in feature_names:
+                idx = feature_names.index(col)
+                real_predictions[:, idx] = (10 ** real_predictions[:, idx]) - 1e-9
+                real_targets[:, idx] = (10 ** real_targets[:, idx]) - 1e-9
+
+                real_predictions[:, idx] = np.maximum(real_predictions[:, idx], 0.0)
+                real_targets[:, idx] = np.maximum(real_targets[:, idx], 0.0)
+
     # Inverse-transform user counts via dummy array
     dummy_uc = np.zeros((len(user_counts_norm), num_features))
-    dummy_uc[:, user_count_idx] = user_counts_norm
-    user_counts_int = scaler.inverse_transform(dummy_uc)[:, user_count_idx].round().astype(int)
+    dummy_uc[:, feature_user_count_idx] = user_counts_norm
+    user_counts_int = (
+        scaler.inverse_transform(dummy_uc)[:, feature_user_count_idx].round().astype(int)
+    )
 
     return real_predictions, real_targets, user_counts_int

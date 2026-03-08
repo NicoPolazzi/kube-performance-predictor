@@ -1,12 +1,10 @@
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
 
-_PREDICTOR_CONFIG_PATH = Path(__file__).parent.parent / "predictor_config.yaml"
-_EXPERIMENTS_CONFIG_PATH = Path(__file__).parent.parent / "experiments.yaml"
+_PREDICTOR_CONFIG_PATH = Path(__file__).parent.parent / "confs" / "predictor_config.yaml"
+_EXPERIMENTS_CONFIG_PATH = Path(__file__).parent.parent / "confs" / "experiments.yaml"
 
 
 # ── Collector ────────────────────────────────────────────────────────────────
@@ -20,23 +18,21 @@ class ExperimentConfig:
 
 @dataclass(frozen=True)
 class CollectorConfig:
-    prometheus_url: str
     experiment_duration: int
     query_interval: int
     warmup_period: int
     experiments: list[ExperimentConfig]
 
     @classmethod
-    def from_env(cls, experiments_path: Path = _EXPERIMENTS_CONFIG_PATH) -> "CollectorConfig":
-        load_dotenv()
-        with open(experiments_path) as f:
+    def from_yaml(cls, path: Path = _EXPERIMENTS_CONFIG_PATH) -> "CollectorConfig":
+        with open(path) as f:
             raw = yaml.safe_load(f)
         experiments = [ExperimentConfig(**e) for e in raw["experiments"]]
+        query_interval = int(raw["query_sample_duration_seconds"])
         return cls(
-            prometheus_url=os.getenv("PROMETHEUS_URL", "http://localhost:9090"),
-            experiment_duration=int(os.getenv("EXPERIMENT_DURATION_SECONDS", "600")),
-            query_interval=int(os.getenv("QUERY_SAMPLE_DURATION_SECONDS", "60")),
-            warmup_period=int(os.getenv("QUERY_SAMPLE_DURATION_SECONDS", "60")) * 2,
+            experiment_duration=int(raw["experiment_duration_seconds"]),
+            query_interval=query_interval,
+            warmup_period=query_interval * 2,
             experiments=experiments,
         )
 
@@ -47,16 +43,19 @@ class CollectorConfig:
 @dataclass(frozen=True)
 class PipelineConfig:
     sequence_length: int
-    train_lower_percentile: float
-    train_upper_percentile: float
+    train_ratio: float
+    split_strategy: str = "interpolation"
 
 
-@dataclass(frozen=True)
+@dataclass
 class ModelConfig:
     hidden_size: int
+    hidden_size_2: int
+    head_hidden_size: int = 32
+    dropout: float = 0.0
 
 
-@dataclass(frozen=True)
+@dataclass
 class TrainingConfig:
     epochs: int
     learning_rate: float

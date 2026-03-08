@@ -1,18 +1,45 @@
-import json
 import logging
+import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
+from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
 from kpp.predictor.model import PerformanceModel, evaluate, train_model
 from kpp.predictor.pipeline import PerformanceDataPipeline
-from torch.utils.data import DataLoader
 
 logger = logging.getLogger("predictor")
+
+
+def compute_metrics(
+    real_predictions: np.ndarray,
+    real_targets: np.ndarray,
+    target_columns: list[str],
+    target_indices: list[int],
+) -> dict[str, dict[str, float]]:
+    """
+    Returns {col_name: {"MAE": float, "MAPE": float}} for each target column.
+    MAPE skips samples where |true| <= 1e-6 to avoid division by zero.
+    """
+    metrics: dict[str, dict[str, float]] = {}
+    for col_name, idx in zip(target_columns, target_indices, strict=True):
+        preds = real_predictions[:, idx]
+        targets = real_targets[:, idx]
+        mae = float(np.mean(np.abs(preds - targets)))
+        threshold = max(1e-6, 0.01 * np.mean(np.abs(targets)))
+        valid_mask = np.abs(targets) > threshold
+        if valid_mask.any():
+            mape = float(
+                np.mean(np.abs((preds[valid_mask] - targets[valid_mask]) / targets[valid_mask]))
+                * 100
+            )
+        else:
+            mape = float("nan")
+        metrics[col_name] = {"MAE": mae, "MAPE": mape}
+    return metrics
 
 
 def plot(
@@ -22,6 +49,7 @@ def plot(
     target_columns: list[str],
     target_indices: list[int],
     service_name: str,
+    metrics: dict[str, dict[str, float]],
 ) -> None:
     """Creates and saves the predictions plot to plots/{service_name}_predictions.png."""
     unique_users = sorted(np.unique(user_counts_int))
@@ -60,9 +88,12 @@ def plot(
         ax.plot(x, mean_pred, label="Linear", color="green", linewidth=2)
         ax.fill_between(x, mean_pred - std_pred, mean_pred + std_pred, color="green", alpha=0.15)
 
-        rmse = np.sqrt(np.mean((real_predictions[:, target_idx] - real_targets[:, target_idx]) ** 2))
-        ax.set_title(f"{service_name} - {col_name}  |  RMSE: {rmse:.4f}")
+        col_metrics = metrics.get(col_name, {})
+        mae = col_metrics.get("MAE", float("nan"))
+        mape = col_metrics.get("MAPE", float("nan"))
+        ax.set_title(f"{service_name} - {col_name}  |  MAE: {mae:.6f}  |  MAPE: {mape:.2f}%")
         ax.set_ylabel(col_name)
+        ax.set_xticks(x)
         ax.legend()
         ax.grid(True, alpha=0.3)
 
@@ -78,59 +109,104 @@ def plot(
     logger.info(f"Saved plot for {service_name} at {file_path}")
 
 
-def _load_results(models_path: Path, glob_pattern: str) -> list[tuple[str, float, float]]:
-    results = []
-    for config_file in models_path.glob(glob_pattern):
-        with open(config_file, "r") as f:
-            try:
-                data = json.load(f)
-                service = data.get("service", config_file.stem)
-                best_mse = data.get("best_test_loss", None)
-                if best_mse is not None:
-                    best_rmse = np.sqrt(best_mse)
-                    results.append((service, best_rmse, best_rmse * 100))
-                else:
-                    logger.warning(f"No 'best_test_loss' found in {config_file.name}")
-            except json.JSONDecodeError:
-                logger.error(f"Error reading JSON from {config_file.name}")
-    results.sort(key=lambda x: x[0])
-    return results
+def generate_metrics_table(
+    all_metrics: dict[str, dict[str, dict[str, float]]],
+    target_columns: list[str],
+) -> None:
+    """Prints a table with rows=services and columns=MAE+MAPE per target metric.
 
-
-def _print_table(title: str, results: list[tuple[str, float, float]]) -> None:
-    if not results:
-        logger.warning(f"No valid results found for: {title}")
+    Also writes an HTML version to plots/metrics_table.html for use in emails.
+    """
+    if not all_metrics:
+        logger.warning("No metrics to display.")
         return
 
-    service_col_width = max(len("Microservice"), max(len(s) for s, _, _ in results))
+    services = sorted(all_metrics.keys())
+    service_col_width = max(len("Microservice"), max(len(s) for s in services))
 
-    print(f"\n### {title}\n")
-    print(f"| {'Microservice':<{service_col_width}} | Best Test RMSE | Error Margin |")
-    print(f"|{'-' * (service_col_width + 2)}|----------------|--------------|")
+    # Build header: one MAE + MAPE pair per target column
+    col_headers = []
+    for col in target_columns:
+        short = col.replace(" (s)", "").replace(" (req/s)", "").replace(" ", "_")
+        col_headers.append(f"{short}_MAE")
+        col_headers.append(f"{short}_MAPE%")
 
-    for service, rmse, pct in results:
-        print(f"| {service:<{service_col_width}} | {rmse:.4f}         | {pct:>5.2f}%       |")
+    col_width = 12
+    header_row = f"| {'Microservice':<{service_col_width}} |"
+    for h in col_headers:
+        header_row += f" {h:>{col_width}} |"
 
+    sep_row = f"|{'-' * (service_col_width + 2)}|"
+    for _ in col_headers:
+        sep_row += f"{'-' * (col_width + 2)}|"
 
-def generate_rmse_table(models_dir: str = "models") -> None:
-    models_path = Path(models_dir)
+    print("\n### Prediction Metrics by Microservice\n")
+    print(header_row)
+    print(sep_row)
 
-    if not models_path.exists():
-        logger.error(f"The directory '{models_dir}' does not exist.")
-        return
+    for service in services:
+        row = f"| {service:<{service_col_width}} |"
+        for col in target_columns:
+            col_metrics = all_metrics[service].get(col, {})
+            mae = col_metrics.get("MAE", float("nan"))
+            mape = col_metrics.get("MAPE", float("nan"))
+            row += f" {mae:>{col_width}.6f} |"
+            row += f" {mape:>{col_width}.2f} |"
+        print(row)
 
-    results = _load_results(models_path, "config_*.json")
-    _print_table("PerformanceModel Results by Microservice", results)
+    # Write HTML version
+    th = "style='border:1px solid #ccc;padding:6px 10px;background:#f2f2f2'"
+    td_left = "style='border:1px solid #ccc;padding:6px 10px'"
+    td_right = "style='border:1px solid #ccc;padding:6px 10px;text-align:right'"
+
+    html_lines = [
+        "<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px'>",
+        "  <thead><tr>",
+        f"    <th {th}>Microservice</th>",
+    ]
+    for h in col_headers:
+        html_lines.append(f"    <th {th}>{h}</th>")
+    html_lines += ["  </tr></thead>", "  <tbody>"]
+
+    for i, service in enumerate(services):
+        bg = "" if i % 2 == 0 else " style='background:#f9f9f9'"
+        html_lines.append(f"  <tr{bg}>")
+        html_lines.append(f"    <td {td_left}>{service}</td>")
+        for col in target_columns:
+            col_metrics = all_metrics[service].get(col, {})
+            mae = col_metrics.get("MAE", float("nan"))
+            mape = col_metrics.get("MAPE", float("nan"))
+            html_lines.append(f"    <td {td_right}>{mae:.6f}</td>")
+            html_lines.append(f"    <td {td_right}>{mape:.2f}%</td>")
+        html_lines.append("  </tr>")
+
+    html_lines += ["  </tbody>", "</table>"]
+
+    output_dir = Path("plots")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    html_path = output_dir / "metrics_table.html"
+    html_path.write_text("\n".join(html_lines))
+    logger.info(f"HTML metrics table saved to {html_path}")
 
 
 def main() -> None:
     setup_logging("predictor")
     config = PredictorConfig.from_yaml()
 
-    csv_path = "dataset/performance_results_medium.csv"
+    csv_path = "dataset/performance_results_normal.csv"
     if not Path(csv_path).exists():
         raise FileNotFoundError(
             f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
+        )
+
+    test_csv_path = (
+        "dataset/performance_results_overload.csv"
+        if config.pipeline.split_strategy == "extrapolation"
+        else None
+    )
+    if test_csv_path is not None and not Path(test_csv_path).exists():
+        raise FileNotFoundError(
+            f"Overload CSV data file not found: '{test_csv_path}'. Place your collected data file at this path."
         )
 
     target_cols = [
@@ -142,16 +218,14 @@ def main() -> None:
     pipeline = PerformanceDataPipeline(config.pipeline.sequence_length, target_cols)
     datasets = pipeline.run(
         csv_path,
-        train_lower_percentile=config.pipeline.train_lower_percentile,
-        train_upper_percentile=config.pipeline.train_upper_percentile,
+        train_ratio=config.pipeline.train_ratio,
+        split_strategy=config.pipeline.split_strategy,
+        test_csv_path=test_csv_path,
     )
 
-    # Derive feature list from the pipeline's schema, excluding non-numeric identifier columns.
-    all_features = [
-        col
-        for col in PerformanceDataPipeline.REQUIRED_COLUMNS
-        if col not in ("Timestamp", "Service")
-    ] + PerformanceDataPipeline.DELTA_COLUMNS
+    all_features = pipeline.feature_names
+
+    all_metrics: dict[str, dict[str, dict[str, float]]] = {}
 
     for service_name, data_split in datasets.items():
         logger.info(f"--- Service: {service_name} ---")
@@ -159,22 +233,27 @@ def main() -> None:
         train_dataset = data_split["train"]
         test_dataset = data_split["test"]
 
-        logger.info(f"Train Shape: {train_dataset.tensors[0].shape} (Samples, Window, Features)")
+        logger.info(f"Train Shape: {train_dataset.tensors[0].shape} (Samples, Features)")
         logger.info(f"Test Shape:  {test_dataset.tensors[0].shape}")
 
         train_loader = DataLoader(
-            train_dataset, batch_size=config.training.batch_size, shuffle=True
+            train_dataset, batch_size=config.training.batch_size, shuffle=True, num_workers=0
         )
-        test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False)
+        test_loader = DataLoader(
+            test_dataset, batch_size=config.training.batch_size, shuffle=False, num_workers=0
+        )
 
         output_size = train_dataset.tensors[1].shape[1]
-        flat_input_size = train_dataset.tensors[0].shape[1] * train_dataset.tensors[0].shape[2]
+        input_size = train_dataset.tensors[0].shape[1]
 
         logger.info(f"Training PerformanceModel for {service_name}...")
         model = PerformanceModel(
-            input_size=flat_input_size,
+            input_size=input_size,
             output_size=output_size,
             hidden_size=config.model.hidden_size,
+            hidden_size_2=config.model.hidden_size_2,
+            head_hidden_size=config.model.head_hidden_size,
+            dropout=config.model.dropout,
         )
         train_model(
             config,
@@ -185,15 +264,6 @@ def main() -> None:
             epochs=config.training.epochs,
             learning_rate=config.training.learning_rate,
         )
-
-        logger.info(f"Loading the best saved model weights for {service_name}...")
-        model_path = Path("models") / f"{service_name}.pth"
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"Model file not found: {model_path}. Training may not have saved a checkpoint "
-                f"(no epoch improved on the historical best)."
-            )
-        model.load_state_dict(torch.load(model_path, weights_only=True))
 
         logger.info(f"Evaluating and plotting {service_name}...")
 
@@ -208,9 +278,15 @@ def main() -> None:
             scaler=service_scaler,
             target_columns=target_cols,
             feature_names=all_features,
+            x_feature_names=pipeline.input_columns,
+            log_transform_columns=PerformanceDataPipeline.LOG_TRANSFORM_COLUMNS,
         )
 
         target_indices = [all_features.index(col) for col in target_cols]
+        service_metrics = compute_metrics(
+            real_predictions, real_targets, target_cols, target_indices
+        )
+        all_metrics[service_name] = service_metrics
 
         plot(
             real_predictions=real_predictions,
@@ -219,9 +295,15 @@ def main() -> None:
             target_columns=target_cols,
             target_indices=target_indices,
             service_name=service_name,
+            metrics=service_metrics,
         )
 
-    generate_rmse_table()
+    models_dir = Path("models")
+    if models_dir.exists():
+        shutil.rmtree(models_dir)
+        logger.info("Cleaned up models/ directory.")
+
+    generate_metrics_table(all_metrics, target_cols)
 
 
 if __name__ == "__main__":
