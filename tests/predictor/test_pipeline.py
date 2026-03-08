@@ -56,7 +56,8 @@ def test_run_raises_when_required_column_missing(tmp_path):
 def test_run_succeeds_with_minimal_rows(tmp_path):
     """With tabular sampling, any number of rows > 0 produces samples (no window size constraint)."""
     df = pd.read_csv(FIXTURE_CSV)
-    small_df = df[df["Service"] == "adservice"].head(3)
+    # Take one row per unique user count to get exactly 3 unique counts (minimum for interpolation)
+    small_df = df[df["Service"] == "adservice"].drop_duplicates(subset=["User Count"]).head(3)
     small_csv = tmp_path / "tiny.csv"
     small_df.to_csv(small_csv, index=False)
 
@@ -65,15 +66,6 @@ def test_run_succeeds_with_minimal_rows(tmp_path):
     assert "adservice" in result
     X_train = result["adservice"]["train"].tensors[0]
     assert X_train.ndim == 2
-
-
-def test_run_temporal_split_train_larger_than_test():
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
-    result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
-    for service_data in result.values():
-        n_train = service_data["train"].tensors[0].shape[0]
-        n_test = service_data["test"].tensors[0].shape[0]
-        assert n_train > n_test
 
 
 def test_run_stores_scalers_for_each_service():
@@ -192,8 +184,10 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
 
 
 def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
-    # Build 10 rows with a known max Response Time in the training split.
-    # train_ratio=0.7 → first 7 rows are train; max RT in train = max_rt.
+    # Build 10 rows with distinct user counts [1..10].
+    # Interpolation split with train_ratio=0.7 → n_holdout=max(1, round(10*0.3))=3
+    # Holdout user counts are the middle 3: [4, 5, 6]
+    # Training rows are user counts [1, 2, 3, 7, 8, 9, 10]
     n = 10
     max_rt = 100.0
     rt_values = [max_rt, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 5.0]
@@ -211,12 +205,13 @@ def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
     df.to_csv(csv_path, index=False)
 
     pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
-    pipeline.run(str(csv_path), train_ratio=0.7)
+    pipeline.run(str(csv_path), train_ratio=0.7, split_strategy="interpolation")
 
     scaler = pipeline.scalers["svc"]
     rt_col_idx = list(scaler.feature_names_in_).index("Response Time (s)")
-    # First 7 rows are training data (train_ratio=0.7); verify scaler was fitted on log10 values
-    train_rt = rt_values[:7]
+    # Training rows are user counts [1,2,3,7,8,9,10] → indices [0,1,2,6,7,8,9]
+    train_indices = [0, 1, 2, 6, 7, 8, 9]
+    train_rt = [rt_values[i] for i in train_indices]
     expected_mean = float(np.mean(np.log10(np.array(train_rt) + 1e-9)))
     assert abs(scaler.mean_[rt_col_idx] - expected_mean) < 1e-3
 

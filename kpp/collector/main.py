@@ -13,15 +13,16 @@ from kpp.config import CollectorConfig
 from kpp.logging_config import setup_logging
 
 COOLDOWN_SECONDS = 180
+PROMETHEUS_URL = "http://localhost:9090"
 
 logger = logging.getLogger(__name__)
 
 
 def main():
     setup_logging("collector", log_file="app.log")
-    config = CollectorConfig.from_env()
+    config = CollectorConfig.from_yaml()
     writer = CsvWriter()
-    prom_client = PrometheusClient(PrometheusConnect(url=config.prometheus_url, disable_ssl=True))
+    prom_client = PrometheusClient(PrometheusConnect(url=PROMETHEUS_URL, disable_ssl=True))
     kube_config.load_kube_config()
     kube_client = KubernetesClient(core_api=client.CoreV1Api(), apps_api=client.AppsV1Api())
     service_names = kube_client.get_services_names()

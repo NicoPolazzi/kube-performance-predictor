@@ -75,17 +75,10 @@ Wait for all pods to be in the `Running` state before proceeding.
 
 ## Configuration
 
-The application uses Environment Variables for configuration. You can set these in your shell or create a `.env` file in the root directory of the project. For example:
+Configuration files live in the `confs/` directory:
 
-```
-PROMETHEUS_URL=http://localhost:9090
-EXPERIMENT_DURATION_SECONDS=600
-QUERY_SAMPLE_DURATION_SECONDS=60
-
-TEST_USER_START=10
-TEST_USER_END=100
-TEST_USER_STEP=5
-```
+- `confs/experiments.yaml` — Collector settings: experiment duration, query sample interval, and the list of experiments (user counts and replica configurations)
+- `confs/predictor_config.yaml` — Predictor settings: pipeline, model, training, and scheduler hyperparameters
 
 ## Usage
 

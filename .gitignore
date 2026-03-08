@@ -4,16 +4,12 @@ __pycache__
 # Exclude log files.
 *.log
 
-# Exclude datasets, plots, and models
-dataset/
+# Exclude plots
 plots/
-models/
-
-# Exclude environment variables
-.env
 
 # Exclude test coverage artifacts
 .coverage*
 coverage.xml
 
+# Exclude MacOS related files
 .DS_STORE

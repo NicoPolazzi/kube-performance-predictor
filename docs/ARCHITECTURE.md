@@ -21,12 +21,12 @@ CSV columns: `Timestamp`, `Service`, `User Count`, `Response Time (s)`, `Through
 Loads collected CSV data, normalizes per service, trains a linear model for each microservice, and saves models/plots.
 
 - `main.py` — Orchestration: runs the training loop, calls `evaluate()`+`plot()` per service, prints the RMSE table via `generate_rmse_table()`; also owns `plot()`, `_load_results()`, `_print_table()`, `generate_rmse_table()`
-- `pipeline.py` — `PerformanceDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, normalizes with per-service `MinMaxScaler`, stratifies split by throughput percentile
+- `pipeline.py` — `PerformanceDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, splits into train/test via interpolation or extrapolation strategy, normalizes with per-service `StandardScaler`
 - `model.py` — `PerformanceModel` (linear input → hidden → output with ReLU); `train_model()` (Adam + ReduceLROnPlateau, saves best weights to `models/`); `evaluate()` (inference on test set, inverts scaling, returns predictions/targets/user counts)
 
 ## Shared
 
-- `kpp/config.py` — Frozen dataclasses for both phases: `CollectorConfig` (loads from `.env`) and `PredictorConfig` (loads from `predictor_config.yaml`)
+- `kpp/config.py` — Frozen dataclasses for both phases: `CollectorConfig` (loads from `confs/experiments.yaml`) and `PredictorConfig` (loads from `confs/predictor_config.yaml`)
 
 ## Data & Model Storage
 

@@ -19,9 +19,9 @@ class PerformanceDataPipeline:
     Flow:
     1. Load CSV & Fix Timestamps (Aggregation)
     2. Split by Microservice
-    3. Temporal Split -> Train: first 90% of time-ordered rows; Test: last 10%
+    3. Train/Test Split (interpolation or extrapolation strategy)
     4. Normalize (Per Service, fit on train only) -> Stores Scalers for later inversion
-    5. Windowing -> Creates (X, y) tensors for ML training
+    5. Create (X, y) tensors for ML training
     """
 
     THROUGHPUT_COL = "Throughput (req/s)"
@@ -50,7 +50,7 @@ class PerformanceDataPipeline:
         self,
         csv_path: str,
         train_ratio: float = 0.9,
-        split_strategy: str = "temporal",
+        split_strategy: str = "interpolation",
         test_csv_path: str | None = None,
     ) -> ServiceDatasets:
         """
@@ -64,7 +64,6 @@ class PerformanceDataPipeline:
             }
 
         Split strategies:
-        - "temporal": first floor(len * train_ratio) rows → train; rest → test.
         - "interpolation": middle user-count value(s) held out as test set.
         - "extrapolation": all rows from csv_path → train; all rows from test_csv_path → test.
           Requires test_csv_path to be set.
@@ -98,7 +97,10 @@ class PerformanceDataPipeline:
                     service_df, train_ratio, service_name
                 )
             else:
-                train_raw, test_raw = self._temporal_split(service_df, train_ratio, service_name)
+                raise ValueError(
+                    f"Unknown split_strategy '{split_strategy}'. "
+                    f"Valid options: 'interpolation', 'extrapolation'."
+                )
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
             X_train, y_train = self._create_samples(train_df)
             X_test, y_test = self._create_samples(test_df)
@@ -147,29 +149,6 @@ class PerformanceDataPipeline:
         df["Load per Replica"] = df["User Count"] / df["Replicas"]
         df["CPU per User"] = (df["CPU Request"] * df["Replicas"]) / df["User Count"]
         return df
-
-    def _temporal_split(
-        self,
-        df: pd.DataFrame,
-        train_ratio: float,
-        service_name: str,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Splits the raw (un-normalized) dataframe by time order.
-
-        The dataframe is already time-ordered from _load_data aggregation. The first
-        floor(len(df) * train_ratio) rows go to train; the remaining rows go to test.
-        """
-        split_idx = int(len(df) * train_ratio)
-        train_df = df.iloc[:split_idx].copy()
-        test_df = df.iloc[split_idx:].copy()
-
-        logger.info(
-            f"[{service_name}] Temporal split (ratio={train_ratio:.2f}): "
-            f"{len(train_df)} train, {len(test_df)} test rows."
-        )
-
-        return train_df, test_df
 
     def _interpolation_split(
         self,
