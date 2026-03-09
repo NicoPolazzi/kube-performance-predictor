@@ -158,7 +158,7 @@ def test_train_model_restores_best_weights_in_memory(tmp_path, monkeypatch):
         scheduler=SchedulerConfig(factor=0.5, patience=10, min_lr=1e-6),
     )
 
-    train_model(
+    best_test_loss, train_losses, test_losses = train_model(
         config=config,
         service_name="frontend",
         model=model,
@@ -169,3 +169,6 @@ def test_train_model_restores_best_weights_in_memory(tmp_path, monkeypatch):
 
     assert not (tmp_path / "models").exists()
     assert model.training is False
+    assert isinstance(best_test_loss, float)
+    assert len(train_losses) == 1
+    assert len(test_losses) == 1

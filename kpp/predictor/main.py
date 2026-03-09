@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from torch.utils.data import DataLoader
 
+import torch
+
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
 from kpp.predictor.model import PerformanceModel, evaluate, train_model
@@ -188,6 +190,35 @@ def generate_metrics_table(
     logger.info(f"HTML metrics table saved to {html_path}")
 
 
+def plot_losses(
+    train_losses: list[float],
+    test_losses: list[float],
+    service_name: str,
+) -> None:
+    """Plots train & test MAE loss curves and saves to plots/{service_name}_losses.png."""
+    epochs = range(1, len(train_losses) + 1)
+    train_mae = np.array(train_losses)
+    test_mae = np.array(test_losses)
+
+    _, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(epochs, train_mae, label="Train MAE", linewidth=2)
+    ax.plot(epochs, test_mae, label="Test MAE", linewidth=2)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("MAE")
+    ax.set_title(f"{service_name} — Training Loss")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    output_dir = Path("plots")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    file_path = output_dir / f"{service_name}_losses.png"
+    plt.savefig(file_path)
+    plt.close()
+
+    logger.info(f"Saved loss plot for {service_name} at {file_path}")
+
+
 def main() -> None:
     setup_logging("predictor")
     config = PredictorConfig.from_yaml()
@@ -226,6 +257,8 @@ def main() -> None:
 
     all_metrics: dict[str, dict[str, dict[str, float]]] = {}
 
+    torch.manual_seed(42)
+
     for service_name, data_split in datasets.items():
         logger.info(f"--- Service: {service_name} ---")
 
@@ -254,7 +287,7 @@ def main() -> None:
             head_hidden_size=config.model.head_hidden_size,
             dropout=config.model.dropout,
         )
-        train_model(
+        _, train_losses, test_losses = train_model(
             config,
             service_name,
             model,
@@ -263,6 +296,8 @@ def main() -> None:
             epochs=config.training.epochs,
             learning_rate=config.training.learning_rate,
         )
+
+        plot_losses(train_losses, test_losses, service_name)
 
         logger.info(f"Evaluating and plotting {service_name}...")
 

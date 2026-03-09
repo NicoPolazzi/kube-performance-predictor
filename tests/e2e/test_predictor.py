@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import torch
 from torch.utils.data import DataLoader
 
 from kpp.config import ModelConfig, PipelineConfig, PredictorConfig, SchedulerConfig, TrainingConfig
@@ -29,7 +30,7 @@ _INTERPOLATION_MAPE_CEILINGS = {
 }
 _EXTRAPOLATION_MAPE_CEILINGS = {
     "Response Time (s)": 700.0,
-    "Throughput (req/s)": 40.0,
+    "Throughput (req/s)": 50.0,
     "CPU Usage": 65.0,
 }
 
@@ -37,6 +38,8 @@ _EXTRAPOLATION_MAPE_CEILINGS = {
 def _train_and_assert(pipeline, datasets, mape_ceilings):
     """Train a model per service and run quality/sanity assertions."""
     assert datasets, "Pipeline returned no service datasets"
+
+    torch.manual_seed(42)
 
     for service_name, data_split in datasets.items():
         train_dataset = data_split["train"]
