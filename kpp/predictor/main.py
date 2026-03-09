@@ -215,7 +215,7 @@ def main() -> None:
         "CPU Usage",
     ]
 
-    pipeline = PerformanceDataPipeline(config.pipeline.sequence_length, target_cols)
+    pipeline = PerformanceDataPipeline(target_cols)
     datasets = pipeline.run(
         csv_path,
         train_ratio=config.pipeline.train_ratio,
@@ -298,6 +298,7 @@ def main() -> None:
             metrics=service_metrics,
         )
 
+    # TODO: Maybe we can remove this logic
     models_dir = Path("models")
     if models_dir.exists():
         shutil.rmtree(models_dir)

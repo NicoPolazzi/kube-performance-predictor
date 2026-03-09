@@ -26,7 +26,7 @@ Loads collected CSV data, normalizes per service, trains a linear model for each
 
 ## Shared
 
-- `kpp/config.py` — Frozen dataclasses for both phases: `CollectorConfig` (loads from `confs/experiments.yaml`) and `PredictorConfig` (loads from `confs/predictor_config.yaml`)
+- `kpp/config.py` — Frozen dataclasses for both phases: `CollectorConfig` (loads from `confs/experiments.yaml`) and `PredictorConfig` (loads from `confs/predictor.yaml`)
 
 ## Data & Model Storage
 

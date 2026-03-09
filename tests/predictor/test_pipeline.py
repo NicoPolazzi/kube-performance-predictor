@@ -18,13 +18,13 @@ _TRAIN_RATIO = 0.7
 
 
 def test_run_returns_dict_keyed_by_service():
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     assert set(result.keys()) == {"adservice", "frontend"}
 
 
 def test_run_output_x_shape_is_samples_features():
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         assert isinstance(service_data["train"], TensorDataset)
@@ -34,7 +34,7 @@ def test_run_output_x_shape_is_samples_features():
 
 
 def test_run_output_y_shape_is_samples_targets():
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         assert isinstance(service_data["train"], TensorDataset)
@@ -48,7 +48,7 @@ def test_run_raises_when_required_column_missing(tmp_path):
     bad_csv = tmp_path / "bad.csv"
     df.to_csv(bad_csv, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=["Response Time (s)"])
+    pipeline = PerformanceDataPipeline(target_columns=["Response Time (s)"])
     with pytest.raises(ValueError, match="CPU Usage"):
         pipeline.run(str(bad_csv))
 
@@ -61,7 +61,7 @@ def test_run_succeeds_with_minimal_rows(tmp_path):
     small_csv = tmp_path / "tiny.csv"
     small_df.to_csv(small_csv, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(small_csv))
     assert "adservice" in result
     X_train = result["adservice"]["train"].tensors[0]
@@ -69,13 +69,13 @@ def test_run_succeeds_with_minimal_rows(tmp_path):
 
 
 def test_run_stores_scalers_for_each_service():
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     assert set(pipeline.scalers.keys()) == set(result.keys())
 
 
 def test_run_normalizes_training_data_with_standard_scaler():
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
     for service_data in result.values():
         X_train = service_data["train"].tensors[0]
@@ -91,7 +91,7 @@ def test_run_interpolation_split_test_size_matches_held_out_rows():
     # Fixture: 3 unique user counts [4, 6, 8], 11 rows each per service.
     # train_ratio=0.9 → n_holdout=max(1, round(3*0.1))=1 → holdout=[6].
     # Test split: 11 rows; with tabular sampling → 11 samples directly.
-    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(FIXTURE_CSV), train_ratio=0.9, split_strategy="interpolation")
     for service_data in result.values():
         n_test = service_data["test"].tensors[0].shape[0]
@@ -105,7 +105,7 @@ def test_run_interpolation_split_raises_when_too_few_user_counts(tmp_path):
     small_csv = tmp_path / "single_count.csv"
     small_df.to_csv(small_csv, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     with pytest.raises(ValueError, match="at least 3 unique user counts"):
         pipeline.run(str(small_csv), split_strategy="interpolation")
 
@@ -120,7 +120,7 @@ def test_run_extrapolation_split_returns_all_normal_rows_as_train(tmp_path):
     overload_df["User Count"] = overload_df["User Count"] * 10
     overload_df.to_csv(overload_csv, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(
         str(normal_csv),
         split_strategy="extrapolation",
@@ -142,7 +142,7 @@ def test_run_extrapolation_split_drops_service_missing_from_test(tmp_path):
     overload_df = df[df["Service"] == "adservice"].copy()
     overload_df.to_csv(overload_csv, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(
         str(normal_csv),
         split_strategy="extrapolation",
@@ -153,7 +153,7 @@ def test_run_extrapolation_split_drops_service_missing_from_test(tmp_path):
 
 
 def test_run_extrapolation_split_raises_when_test_csv_path_is_none():
-    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     with pytest.raises(ValueError, match="test_csv_path is required"):
         pipeline.run(str(FIXTURE_CSV), split_strategy="extrapolation")
 
@@ -173,7 +173,7 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     dup_csv = tmp_path / "dup.csv"
     dup_df.to_csv(dup_csv, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=5, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     result = pipeline.run(str(dup_csv), train_ratio=_TRAIN_RATIO)
 
     # dup_df has len(svc_df) input rows for adservice; after merging the two same-minute
@@ -204,7 +204,7 @@ def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
     csv_path = tmp_path / "test.csv"
     df.to_csv(csv_path, index=False)
 
-    pipeline = PerformanceDataPipeline(sequence_length=2, target_columns=TARGET_COLUMNS)
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
     pipeline.run(str(csv_path), train_ratio=0.7, split_strategy="interpolation")
 
     scaler = pipeline.scalers["svc"]

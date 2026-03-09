@@ -1,7 +1,6 @@
 pipeline:
-  sequence_length: 1
   train_ratio: 0.9
-  split_strategy: extrapolation
+  split_strategy: interpolation
 
 model:
   hidden_size: 256
@@ -10,7 +9,7 @@ model:
   dropout: 0.3
 
 training:
-  epochs: 200
+  epochs: 100
   learning_rate: 0.003
   batch_size: 32
   weight_decay: 0.0001

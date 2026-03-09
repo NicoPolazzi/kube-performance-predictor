@@ -39,8 +39,7 @@ class PerformanceDataPipeline:
 
     LOG_TRANSFORM_COLUMNS: ClassVar[List[str]] = ["Response Time (s)"]
 
-    def __init__(self, sequence_length: int, target_columns: List[str]):
-        self.sequence_length = sequence_length
+    def __init__(self, target_columns: List[str]):
         self.target_columns = target_columns
         self.scalers: Dict[str, StandardScaler] = {}  # Used to invert the prediction
         self.input_columns: List[str] = []  # Non-target feature names, set by _create_samples

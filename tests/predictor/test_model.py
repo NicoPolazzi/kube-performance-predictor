@@ -152,7 +152,7 @@ def test_train_model_restores_best_weights_in_memory(tmp_path, monkeypatch):
 
     model = PerformanceModel(input_size=N_FEATURES, output_size=len(TARGET_COLUMNS))
     config = PredictorConfig(
-        pipeline=PipelineConfig(sequence_length=5, train_ratio=0.8),
+        pipeline=PipelineConfig(train_ratio=0.8),
         model=ModelConfig(hidden_size=64, hidden_size_2=32),
         training=TrainingConfig(epochs=1, learning_rate=0.001, batch_size=4, weight_decay=0.003),
         scheduler=SchedulerConfig(factor=0.5, patience=10, min_lr=1e-6),

@@ -1,26 +1,117 @@
-experiment_duration_seconds: 600
-query_sample_duration_seconds: 60
+experiment_duration_seconds: 1200
+profile: normal
 
-experiments:
-  - users: 50
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 60
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 70
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 80
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 90
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 100
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 110
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 120
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 130
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 140
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-  - users: 150
-    replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+profiles:
+  normal:
+    - users: 60
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 61
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 62
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 63
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 64
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 65
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 66
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 67
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 68
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 69
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 70
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 71
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 72
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 73
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 74
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 75
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 76
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 77
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 78
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 79
+      replicas: {frontend: 4, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 80
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 81
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 82
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 83
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 84
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 85
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 86
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 87
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 88
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 89
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 90
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 91
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 92
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 93
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 94
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 95
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 96
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 97
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 98
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 99
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 100
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 101
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 102
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 103
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 104
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 105
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 106
+      replicas: {frontend: 6, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 107
+      replicas: {frontend: 6, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 108
+      replicas: {frontend: 6, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+    - users: 109
+      replicas: {frontend: 6, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+
+  overload:
+    - users: 200
+      replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+    - users: 250
+      replicas: {frontend: 4, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+    - users: 300
+      replicas: {frontend: 4, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
+    - users: 350
+      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+    - users: 400
+      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
