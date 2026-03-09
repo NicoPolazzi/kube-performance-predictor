@@ -176,7 +176,7 @@ class PerformanceDataPipeline:
         if n_unique < 3:
             raise ValueError(
                 f"[{service_name}] Interpolation split requires at least 3 unique user counts, "
-                f"got {n_unique}: {sorted_counts}"
+                f"got {n_unique}: {[float(x) for x in sorted_counts]}"
             )
         n_holdout = max(1, round(n_unique * (1 - train_ratio)))
         start = (n_unique - n_holdout) // 2
@@ -186,7 +186,7 @@ class PerformanceDataPipeline:
         test_df = df[df[self.USER_COUNT_COL].isin(holdout)].copy()
 
         logger.info(
-            f"[{service_name}] Interpolation split: holdout user counts={sorted(holdout)}, "
+            f"[{service_name}] Interpolation split: holdout user counts={[float(x) for x in sorted(holdout)]}, "
             f"{len(train_df)} train rows, {len(test_df)} test rows."
         )
         return train_df, test_df

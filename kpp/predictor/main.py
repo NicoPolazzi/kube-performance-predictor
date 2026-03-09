@@ -52,7 +52,7 @@ def plot(
     service_name: str,
     metrics: dict[str, dict[str, float]],
 ) -> None:
-    """Creates and saves the predictions plot to plots/{service_name}_predictions.png."""
+    """Creates and saves the predictions plot to plots/predictions/{service_name}_predictions.png."""
     unique_users = sorted(np.unique(user_counts_int))
 
     num_targets = len(target_columns)
@@ -101,7 +101,7 @@ def plot(
     plt.xlabel("Concurrent Users")
     plt.tight_layout()
 
-    output_dir = Path("plots")
+    output_dir = Path("plots/predictions")
     output_dir.mkdir(parents=True, exist_ok=True)
     file_path = output_dir / f"{service_name}_predictions.png"
     plt.savefig(file_path)
@@ -195,7 +195,7 @@ def plot_losses(
     test_losses: list[float],
     service_name: str,
 ) -> None:
-    """Plots train & test MAE loss curves and saves to plots/{service_name}_losses.png."""
+    """Plots train & test MAE loss curves and saves to plots/losses/{service_name}_losses.png."""
     epochs = range(1, len(train_losses) + 1)
     train_mae = np.array(train_losses)
     test_mae = np.array(test_losses)
@@ -210,7 +210,7 @@ def plot_losses(
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
 
-    output_dir = Path("plots")
+    output_dir = Path("plots/losses")
     output_dir.mkdir(parents=True, exist_ok=True)
     file_path = output_dir / f"{service_name}_losses.png"
     plt.savefig(file_path)
