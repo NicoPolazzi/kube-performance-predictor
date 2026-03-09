@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-_PREDICTOR_CONFIG_PATH = Path(__file__).parent.parent / "confs" / "predictor_config.yaml"
+_PREDICTOR_CONFIG_PATH = Path(__file__).parent.parent / "confs" / "predictor.yaml"
 _EXPERIMENTS_CONFIG_PATH = Path(__file__).parent.parent / "confs" / "experiments.yaml"
 
 
@@ -27,8 +27,9 @@ class CollectorConfig:
     def from_yaml(cls, path: Path = _EXPERIMENTS_CONFIG_PATH) -> "CollectorConfig":
         with open(path) as f:
             raw = yaml.safe_load(f)
-        experiments = [ExperimentConfig(**e) for e in raw["experiments"]]
-        query_interval = int(raw["query_sample_duration_seconds"])
+        profile = raw["profile"]
+        experiments = [ExperimentConfig(**e) for e in raw["profiles"][profile]]
+        query_interval = 60
         return cls(
             experiment_duration=int(raw["experiment_duration_seconds"]),
             query_interval=query_interval,
@@ -42,7 +43,6 @@ class CollectorConfig:
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    sequence_length: int
     train_ratio: float
     split_strategy: str = "interpolation"
 

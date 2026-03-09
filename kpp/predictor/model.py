@@ -9,6 +9,7 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
+from kpp.predictor.pipeline import PerformanceDataPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def train_model(
     epochs: int = 50,
     learning_rate: float = 0.001,
 ) -> float:
-    """Trains a PerformanceModel, restores best weights in memory, and returns best test loss."""
+    """Trains a PerformanceModel and returns the model with best test loss in evaluation mode."""
     torch.manual_seed(42)
     best_test_loss = float("inf")
     best_state_dict = None
@@ -96,18 +97,12 @@ def train_model(
         for batch_x, batch_y in train_loader:
             optimizer.zero_grad()
             predictions = model(batch_x)
-
             loss_rt = criterion(predictions[:, 0], batch_y[:, 0])
             loss_tp = criterion(predictions[:, 1], batch_y[:, 1])
             loss_cpu = criterion(predictions[:, 2], batch_y[:, 2])
             loss = loss_rt + loss_tp + loss_cpu
             loss.backward()
             optimizer.step()
-
-            # loss = criterion(predictions, batch_y)
-            # loss.backward()
-            # optimizer.step()
-
             train_loss += loss.item() * batch_x.size(0)
             train_total_samples += batch_x.size(0)
 
@@ -145,7 +140,8 @@ def train_model(
 
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
-    logger.info("Training complete. Best weights restored into model.")
+        model.eval()
+    logger.info("Training complete. Best weights restored into model ready for evaluation.")
     return best_test_loss
 
 
@@ -180,19 +176,18 @@ def evaluate(
             f"{scaler.n_features_in_}. Ensure feature_names matches the columns used during fitting."
         )
 
-    if "User Count" not in feature_names:
+    if PerformanceDataPipeline.USER_COUNT_COL not in feature_names:
         raise ValueError("'User Count' must be present in feature_names for x-axis grouping.")
 
     x_names = x_feature_names if x_feature_names is not None else feature_names
-    x_user_count_idx = x_names.index("User Count")
-    feature_user_count_idx = feature_names.index("User Count")
+    x_user_count_idx = x_names.index(PerformanceDataPipeline.USER_COUNT_COL)
+    feature_user_count_idx = feature_names.index(PerformanceDataPipeline.USER_COUNT_COL)
     num_features = len(feature_names)
 
     all_predictions = []
     all_targets = []
     all_user_counts_norm = []
 
-    model.eval()
     with torch.no_grad():
         for batch_x, batch_y in test_loader:
             predictions = model(batch_x)

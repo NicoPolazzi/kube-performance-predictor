@@ -1,5 +1,4 @@
 import logging
-import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -210,12 +209,12 @@ def main() -> None:
         )
 
     target_cols = [
-        "Response Time (s)",
-        "Throughput (req/s)",
-        "CPU Usage",
+        PerformanceDataPipeline.RESPONSE_TIME_COL,
+        PerformanceDataPipeline.THROUGHPUT_COL,
+        PerformanceDataPipeline.CPU_USAGE_COL,
     ]
 
-    pipeline = PerformanceDataPipeline(config.pipeline.sequence_length, target_cols)
+    pipeline = PerformanceDataPipeline(target_cols)
     datasets = pipeline.run(
         csv_path,
         train_ratio=config.pipeline.train_ratio,
@@ -297,11 +296,6 @@ def main() -> None:
             service_name=service_name,
             metrics=service_metrics,
         )
-
-    models_dir = Path("models")
-    if models_dir.exists():
-        shutil.rmtree(models_dir)
-        logger.info("Cleaned up models/ directory.")
 
     generate_metrics_table(all_metrics, target_cols)
 
