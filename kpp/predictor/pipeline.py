@@ -24,20 +24,29 @@ class PerformanceDataPipeline:
     5. Create (X, y) tensors for ML training
     """
 
+    TIMESTAMP_COL = "Timestamp"
+    SERVICE_COL = "Service"
+    USER_COUNT_COL = "User Count"
+    RESPONSE_TIME_COL = "Response Time (s)"
     THROUGHPUT_COL = "Throughput (req/s)"
+    CPU_USAGE_COL = "CPU Usage"
+    REPLICAS_COL = "Replicas"
+    CPU_REQUEST_COL = "CPU Request"
+    LOAD_PER_REPLICA_COL = "Load per Replica"
+    CPU_PER_USER_COL = "CPU per User"
 
     REQUIRED_COLUMNS = [
-        "Timestamp",
-        "Service",
-        "User Count",
-        "Response Time (s)",
+        TIMESTAMP_COL,
+        SERVICE_COL,
+        USER_COUNT_COL,
+        RESPONSE_TIME_COL,
         THROUGHPUT_COL,
-        "CPU Usage",
-        "Replicas",
-        "CPU Request",
+        CPU_USAGE_COL,
+        REPLICAS_COL,
+        CPU_REQUEST_COL,
     ]
 
-    LOG_TRANSFORM_COLUMNS: ClassVar[List[str]] = ["Response Time (s)"]
+    LOG_TRANSFORM_COLUMNS: ClassVar[List[str]] = [RESPONSE_TIME_COL]
 
     def __init__(self, target_columns: List[str]):
         self.target_columns = target_columns
@@ -121,15 +130,15 @@ class PerformanceDataPipeline:
         if missing:
             raise ValueError(f"Missing required metrics: {missing}")
 
-        if "Timestamp" in df.columns:
-            df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit="s")
+        if self.TIMESTAMP_COL in df.columns:
+            df[self.TIMESTAMP_COL] = pd.to_datetime(df[self.TIMESTAMP_COL], unit="s")
 
-        df["Timestamp"] = df["Timestamp"].dt.round("1min")
+        df[self.TIMESTAMP_COL] = df[self.TIMESTAMP_COL].dt.round("1min")
         numeric_cols = df.select_dtypes(include=[np.number]).columns
-        df = df.groupby(["Timestamp", "Service"], as_index=False)[numeric_cols].mean()
+        df = df.groupby([self.TIMESTAMP_COL, self.SERVICE_COL], as_index=False)[numeric_cols].mean()
 
         missing_before = df[numeric_cols].isna().sum().sum()
-        df[numeric_cols] = df.groupby("Service")[numeric_cols].transform(
+        df[numeric_cols] = df.groupby(self.SERVICE_COL)[numeric_cols].transform(
             lambda x: x.ffill().bfill()
         )
         filled_count = missing_before - df[numeric_cols].isna().sum().sum()
@@ -141,12 +150,12 @@ class PerformanceDataPipeline:
         return df
 
     def _split_by_service(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-        return {str(service): group.copy() for service, group in df.groupby("Service")}
+        return {str(service): group.copy() for service, group in df.groupby(self.SERVICE_COL)}
 
     def _add_ratio_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        df["Load per Replica"] = df["User Count"] / df["Replicas"]
-        df["CPU per User"] = (df["CPU Request"] * df["Replicas"]) / df["User Count"]
+        df[self.LOAD_PER_REPLICA_COL] = df[self.USER_COUNT_COL] / df[self.REPLICAS_COL]
+        df[self.CPU_PER_USER_COL] = (df[self.CPU_REQUEST_COL] * df[self.REPLICAS_COL]) / df[self.USER_COUNT_COL]
         return df
 
     def _interpolation_split(
@@ -162,7 +171,7 @@ class PerformanceDataPipeline:
         This guarantees test samples fall strictly within the training range (interpolation,
         not extrapolation). Requires at least 3 unique user counts.
         """
-        sorted_counts = sorted(df["User Count"].unique())
+        sorted_counts = sorted(df[self.USER_COUNT_COL].unique())
         n_unique = len(sorted_counts)
         if n_unique < 3:
             raise ValueError(
@@ -173,8 +182,8 @@ class PerformanceDataPipeline:
         start = (n_unique - n_holdout) // 2
         holdout = set(sorted_counts[start : start + n_holdout])
 
-        train_df = df[~df["User Count"].isin(holdout)].copy()
-        test_df = df[df["User Count"].isin(holdout)].copy()
+        train_df = df[~df[self.USER_COUNT_COL].isin(holdout)].copy()
+        test_df = df[df[self.USER_COUNT_COL].isin(holdout)].copy()
 
         logger.info(
             f"[{service_name}] Interpolation split: holdout user counts={sorted(holdout)}, "

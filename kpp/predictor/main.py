@@ -210,9 +210,9 @@ def main() -> None:
         )
 
     target_cols = [
-        "Response Time (s)",
-        "Throughput (req/s)",
-        "CPU Usage",
+        PerformanceDataPipeline.RESPONSE_TIME_COL,
+        PerformanceDataPipeline.THROUGHPUT_COL,
+        PerformanceDataPipeline.CPU_USAGE_COL,
     ]
 
     pipeline = PerformanceDataPipeline(target_cols)
