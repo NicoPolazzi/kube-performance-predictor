@@ -4,8 +4,8 @@ __pycache__
 # Exclude log files.
 *.log
 
-# Exclude plots
-plots/
+# Exclude results
+results/
 
 # Exclude test coverage artifacts
 .coverage*

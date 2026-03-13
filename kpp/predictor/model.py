@@ -69,13 +69,14 @@ def train_model(
     test_loader: DataLoader,
     epochs: int = 50,
     learning_rate: float = 0.001,
-) -> float:
-    """Trains a PerformanceModel and returns the model with best test loss in evaluation mode."""
-    torch.manual_seed(42)
+) -> tuple[float, list[float], list[float]]:
+    """Trains a PerformanceModel and returns (best_test_loss, train_losses, test_losses)."""
     best_test_loss = float("inf")
     best_state_dict = None
+    train_losses: list[float] = []
+    test_losses: list[float] = []
 
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
     optimizer = optim.Adam(
         model.parameters(), lr=learning_rate, weight_decay=config.training.weight_decay
     )
@@ -114,7 +115,10 @@ def train_model(
         with torch.no_grad():
             for batch_x, batch_y in test_loader:
                 predictions = model(batch_x)
-                loss = criterion(predictions, batch_y)
+                loss_rt = criterion(predictions[:, 0], batch_y[:, 0])
+                loss_tp = criterion(predictions[:, 1], batch_y[:, 1])
+                loss_cpu = criterion(predictions[:, 2], batch_y[:, 2])
+                loss = loss_rt + loss_tp + loss_cpu
                 test_loss += loss.item() * batch_x.size(0)
                 test_total_samples += batch_x.size(0)
 
@@ -122,27 +126,30 @@ def train_model(
             raise RuntimeError(f"No test samples found for {service_name}.")
         test_loss /= test_total_samples
 
+        train_losses.append(train_loss)
+        test_losses.append(test_loss)
+
         scheduler.step(test_loss)
 
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             best_state_dict = copy.deepcopy(model.state_dict())
 
-        train_rmse = np.sqrt(train_loss)
-        test_rmse = np.sqrt(test_loss)
+        train_mae = train_loss
+        test_mae = test_loss
 
         current_lr = optimizer.param_groups[0]["lr"]
 
         if (epoch + 1) % 10 == 0 or epoch == 0:
             logger.info(
-                f"Epoch [{epoch + 1}/{epochs}] | LR: {current_lr:.6f} | Train RMSE: {train_rmse:.4f} | Test RMSE: {test_rmse:.4f}"
+                f"Epoch [{epoch + 1}/{epochs}] | LR: {current_lr:.6f} | Train MAE: {train_mae:.4f} | Test MAE: {test_mae:.4f}"
             )
 
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
         model.eval()
     logger.info("Training complete. Best weights restored into model ready for evaluation.")
-    return best_test_loss
+    return best_test_loss, train_losses, test_losses
 
 
 def evaluate(

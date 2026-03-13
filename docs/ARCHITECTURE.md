@@ -20,9 +20,9 @@ CSV columns: `Timestamp`, `Service`, `User Count`, `Response Time (s)`, `Through
 
 Loads collected CSV data, normalizes per service, trains a linear model for each microservice, and saves models/plots.
 
-- `main.py` — Orchestration: runs the training loop, calls `evaluate()`+`plot()` per service, prints the RMSE table via `generate_rmse_table()`; also owns `plot()`, `_load_results()`, `_print_table()`, `generate_rmse_table()`
+- `main.py` — Orchestration: seeds RNG, runs the training loop, calls `evaluate()`+`plot()` per service, prints the metrics table via `generate_metrics_table()`; also owns `plot()`, `compute_metrics()`
 - `pipeline.py` — `PerformanceDataPipeline`: validates CSV, rounds timestamps to 1-min, aggregates by (timestamp, service), fills gaps, splits by service, splits into train/test via interpolation or extrapolation strategy, normalizes with per-service `StandardScaler`
-- `model.py` — `PerformanceModel` (linear input → hidden → output with ReLU); `train_model()` (Adam + ReduceLROnPlateau, saves best weights to `models/`); `evaluate()` (inference on test set, inverts scaling, returns predictions/targets/user counts)
+- `model.py` — `PerformanceModel` (multi-head trunk with GELU); `train_model()` (Adam + ReduceLROnPlateau, restores best weights in memory, returns loss history); `evaluate()` (inference on test set, inverts scaling, returns predictions/targets/user counts)
 
 ## Shared
 
@@ -32,7 +32,7 @@ Loads collected CSV data, normalizes per service, trains a linear model for each
 
 - `dataset/` — Pre-collected CSV files (used as input to predictor)
 - `models/` — Output: `{service}.pth` weights + `config_{service}.json` (hyperparams, best_test_loss)
-- `plots/` — Output: `{service}_predictions.png` prediction visualizations
+- `results/{experiment}/` — Output: `predictions/{service}_predictions.png`, `losses/{service}_losses.png`, and `metrics_table.md`
 
 ## Key Design Decisions
 

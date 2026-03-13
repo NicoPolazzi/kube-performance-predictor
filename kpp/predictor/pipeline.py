@@ -75,21 +75,32 @@ class PerformanceDataPipeline:
         - "interpolation": middle user-count value(s) held out as test set.
         - "extrapolation": all rows from csv_path → train; all rows from test_csv_path → test.
           Requires test_csv_path to be set.
+        - "merged": concatenates csv_path and test_csv_path, then splits using middle
+          user-count holdout (same as interpolation). Requires test_csv_path to be set.
         """
         df = self._load_data(csv_path)
         service_dfs = self._split_by_service(df)
         processed_datasets = {}
 
-        if split_strategy == "extrapolation":
+        if split_strategy in ("extrapolation", "merged"):
             if test_csv_path is None:
-                raise ValueError("test_csv_path is required when split_strategy='extrapolation'")
+                raise ValueError(
+                    f"test_csv_path is required when split_strategy='{split_strategy}'"
+                )
             test_df = self._load_data(test_csv_path)
             test_service_dfs = self._split_by_service(test_df)
-            paired = self._extrapolation_split(service_dfs, test_service_dfs)
+
+            if split_strategy == "extrapolation":
+                paired = self._extrapolation_split(service_dfs, test_service_dfs)
+            else:
+                paired = self._merged_split_all(
+                    service_dfs, test_service_dfs, train_ratio
+                )
+
             for service_name, (train_raw, test_raw) in paired.items():
                 train_norm, test_norm = self._normalize_service(
-                train_raw, test_raw, service_name, fit_on_combined=True
-            )
+                    train_raw, test_raw, service_name, fit_on_combined=True
+                )
                 X_train, y_train = self._create_samples(train_norm)
                 X_test, y_test = self._create_samples(test_norm)
                 processed_datasets[service_name] = {
@@ -107,7 +118,7 @@ class PerformanceDataPipeline:
             else:
                 raise ValueError(
                     f"Unknown split_strategy '{split_strategy}'. "
-                    f"Valid options: 'interpolation', 'extrapolation'."
+                    f"Valid options: 'interpolation', 'extrapolation', 'merged'."
                 )
             train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
             X_train, y_train = self._create_samples(train_df)
@@ -176,7 +187,7 @@ class PerformanceDataPipeline:
         if n_unique < 3:
             raise ValueError(
                 f"[{service_name}] Interpolation split requires at least 3 unique user counts, "
-                f"got {n_unique}: {sorted_counts}"
+                f"got {n_unique}: {[float(x) for x in sorted_counts]}"
             )
         n_holdout = max(1, round(n_unique * (1 - train_ratio)))
         start = (n_unique - n_holdout) // 2
@@ -186,7 +197,7 @@ class PerformanceDataPipeline:
         test_df = df[df[self.USER_COUNT_COL].isin(holdout)].copy()
 
         logger.info(
-            f"[{service_name}] Interpolation split: holdout user counts={sorted(holdout)}, "
+            f"[{service_name}] Interpolation split: holdout user counts={[float(x) for x in sorted(holdout)]}, "
             f"{len(train_df)} train rows, {len(test_df)} test rows."
         )
         return train_df, test_df
@@ -219,6 +230,40 @@ class PerformanceDataPipeline:
                 f"[{service_name}] Extrapolation split: {len(train_df)} train rows (normal), "
                 f"{len(test_df)} test rows (overload)."
             )
+            result[service_name] = (train_df, test_df)
+        return result
+
+    def _merged_split_all(
+        self,
+        train_service_dfs: Dict[str, pd.DataFrame],
+        test_service_dfs: Dict[str, pd.DataFrame],
+        train_ratio: float,
+    ) -> Dict[str, Tuple[pd.DataFrame, pd.DataFrame]]:
+        """
+        Concatenates per-service dataframes from two datasets, then splits using
+        middle user-count holdout (same as interpolation).
+
+        Only services present in both datasets are included. By using the same
+        split logic as interpolation but with overload data in the training set,
+        merged acts as a direct control for the extrapolation experiment.
+        """
+        train_services = set(train_service_dfs.keys())
+        test_services = set(test_service_dfs.keys())
+        common = train_services & test_services
+        dropped = (train_services | test_services) - common
+        if dropped:
+            logger.warning(
+                f"Merged split: dropping {len(dropped)} service(s) absent from one dataset: "
+                f"{sorted(dropped)}"
+            )
+        result: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]] = {}
+        for service_name in sorted(common):
+            combined = pd.concat(
+                [train_service_dfs[service_name], test_service_dfs[service_name]],
+                ignore_index=True,
+            )
+            combined = self._add_ratio_features(combined)
+            train_df, test_df = self._interpolation_split(combined, train_ratio, service_name)
             result[service_name] = (train_df, test_df)
         return result
 
