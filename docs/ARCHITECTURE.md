@@ -32,7 +32,7 @@ Loads collected CSV data, normalizes per service, trains a linear model for each
 
 - `dataset/` — Pre-collected CSV files (used as input to predictor)
 - `models/` — Output: `{service}.pth` weights + `config_{service}.json` (hyperparams, best_test_loss)
-- `plots/` — Output: `{service}_predictions.png` prediction visualizations
+- `results/{experiment}/` — Output: `predictions/{service}_predictions.png`, `losses/{service}_losses.png`, and `metrics_table.md`
 
 ## Key Design Decisions
 

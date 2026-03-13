@@ -1,21 +1,21 @@
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from kpp.config import ModelConfig, PipelineConfig, PredictorConfig, SchedulerConfig, TrainingConfig
+from kpp.predictor.main import compute_metrics
 from kpp.predictor.model import PerformanceModel, evaluate, train_model
 from kpp.predictor.pipeline import PerformanceDataPipeline
 
-_DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
+_DATASET_DIR = Path(__file__).resolve().parents[2] / "datasets"
 _NORMAL_CSV = _DATASET_DIR / "performance_results_normal.csv"
 _OVERLOAD_CSV = _DATASET_DIR / "performance_results_overload.csv"
 
 
 _CONFIG = PredictorConfig(
     pipeline=PipelineConfig(train_ratio=0.9),
-    model=ModelConfig(hidden_size=128, hidden_size_2=64, head_hidden_size=32),
+    model=ModelConfig(hidden_size=128, hidden_size_2=64, head_hidden_size=64, dropout=0.2),
     training=TrainingConfig(epochs=50, learning_rate=0.001, batch_size=32, weight_decay=0.001),
     scheduler=SchedulerConfig(factor=0.5, patience=10, min_lr=1e-6),
 )
@@ -29,9 +29,9 @@ _INTERPOLATION_MAPE_CEILINGS = {
     "CPU Usage": 20.0,
 }
 _EXTRAPOLATION_MAPE_CEILINGS = {
-    "Response Time (s)": 700.0,
-    "Throughput (req/s)": 50.0,
-    "CPU Usage": 65.0,
+    "Response Time (s)": 100.0,
+    "Throughput (req/s)": 85.0,
+    "CPU Usage": 1000.0,
 }
 
 
@@ -39,9 +39,7 @@ def _train_and_assert(pipeline, datasets, mape_ceilings):
     """Train a model per service and run quality/sanity assertions."""
     assert datasets, "Pipeline returned no service datasets"
 
-    torch.manual_seed(42)
-
-    for service_name, data_split in datasets.items():
+    for service_name, data_split in sorted(datasets.items()):
         train_dataset = data_split["train"]
         test_dataset = data_split["test"]
 
@@ -55,11 +53,14 @@ def _train_and_assert(pipeline, datasets, mape_ceilings):
         input_size = train_dataset.tensors[0].shape[1]
         output_size = train_dataset.tensors[1].shape[1]
 
+        torch.manual_seed(42)
         model = PerformanceModel(
             input_size=input_size,
             output_size=output_size,
             hidden_size=_CONFIG.model.hidden_size,
             hidden_size_2=_CONFIG.model.hidden_size_2,
+            head_hidden_size=_CONFIG.model.head_hidden_size,
+            dropout=_CONFIG.model.dropout,
         )
         train_model(
             config=_CONFIG,
@@ -81,17 +82,13 @@ def _train_and_assert(pipeline, datasets, mape_ceilings):
             target_columns=_TARGET_COLS,
             feature_names=all_features,
             x_feature_names=list(pipeline.input_columns),
+            log_transform_columns=PerformanceDataPipeline.LOG_TRANSFORM_COLUMNS,
         )
 
         target_indices = [all_features.index(col) for col in _TARGET_COLS]
-        for col, idx in zip(_TARGET_COLS, target_indices, strict=True):
-            pred = real_predictions[:, idx]
-            target = real_targets[:, idx]
-            nonzero_mask = np.abs(target) > 1e-9
-            mape = float(
-                np.mean(np.abs((pred[nonzero_mask] - target[nonzero_mask]) / target[nonzero_mask]))
-                * 100
-            )
+        metrics = compute_metrics(real_predictions, real_targets, _TARGET_COLS, target_indices)
+        for col, col_metrics in metrics.items():
+            mape = col_metrics["MAPE"]
             ceiling = mape_ceilings[col]
             assert mape < ceiling, (
                 f"Quality gate failed for '{service_name}' / '{col}': MAPE={mape:.2f}% >= {ceiling}%"

@@ -105,13 +105,13 @@ profiles:
       replicas: {frontend: 6, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
 
   overload:
-    - users: 200
-      replicas: {frontend: 3, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-    - users: 250
-      replicas: {frontend: 4, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
     - users: 300
-      replicas: {frontend: 4, productcatalogservice: 2, currencyservice: 2, recommendationservice: 1}
-    - users: 350
-      replicas: {frontend: 5, productcatalogservice: 3, currencyservice: 2, recommendationservice: 2}
+      replicas: {frontend: 1, productcatalogservice: 1, currencyservice: 1, recommendationservice: 1}
     - users: 400
-      replicas: {frontend: 5, productcatalogservice: 4, currencyservice: 3, recommendationservice: 2}
+      replicas: {frontend: 1, productcatalogservice: 1, currencyservice: 1, recommendationservice: 1}
+    - users: 500
+      replicas: {frontend: 1, productcatalogservice: 1, currencyservice: 1, recommendationservice: 1}
+    - users: 600
+      replicas: {frontend: 1, productcatalogservice: 1, currencyservice: 1, recommendationservice: 1}
+    - users: 700
+      replicas: {frontend: 1, productcatalogservice: 1, currencyservice: 1, recommendationservice: 1}

@@ -158,6 +158,58 @@ def test_run_extrapolation_split_raises_when_test_csv_path_is_none():
         pipeline.run(str(FIXTURE_CSV), split_strategy="extrapolation")
 
 
+def test_run_merged_split_returns_correct_services(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    df.to_csv(normal_csv, index=False)
+    overload_df = df.copy()
+    overload_df["User Count"] = overload_df["User Count"] * 10
+    overload_df.to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run(
+        str(normal_csv),
+        split_strategy="merged",
+        test_csv_path=str(overload_csv),
+    )
+
+    assert set(result.keys()) == {"adservice", "frontend"}
+
+
+def test_run_merged_split_test_size_matches_held_out_rows(tmp_path):
+    # Fixture: 3 unique user counts [4, 6, 8], 11 rows each per service.
+    # Overload multiplies by 10 → [40, 60, 80]. Combined: 6 unique counts.
+    # train_ratio=0.9 → n_holdout=max(1, round(6*0.1))=1 → holdout middle value.
+    # Sorted counts: [4, 6, 8, 40, 60, 80], start=(6-1)//2=2, holdout=[8].
+    # Test split: 11 rows for user count 8.
+    df = pd.read_csv(FIXTURE_CSV)
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    df.to_csv(normal_csv, index=False)
+    overload_df = df.copy()
+    overload_df["User Count"] = overload_df["User Count"] * 10
+    overload_df.to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run(
+        str(normal_csv),
+        train_ratio=0.9,
+        split_strategy="merged",
+        test_csv_path=str(overload_csv),
+    )
+
+    for service_data in result.values():
+        n_test = service_data["test"].tensors[0].shape[0]
+        assert n_test == 11  # 11 rows for the held-out user count
+
+
+def test_run_merged_split_raises_when_test_csv_path_is_none():
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    with pytest.raises(ValueError, match="test_csv_path is required"):
+        pipeline.run(str(FIXTURE_CSV), split_strategy="merged")
+
+
 def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
     df = pd.read_csv(FIXTURE_CSV)
     svc_df = df[df["Service"] == "adservice"].copy()

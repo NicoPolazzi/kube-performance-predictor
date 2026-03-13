@@ -53,7 +53,7 @@ Orchestrates load experiments against a live Kubernetes cluster. `KubernetesClie
 
 #### `kpp.predictor`
 
-Loads CSVs from `dataset/` and runs them through `PerformanceDataPipeline`, which validates the schema, rounds timestamps to 1-minute intervals, aggregates by (timestamp, service), fills gaps, and splits into train/test sets using either an interpolation or extrapolation strategy. Each service is normalized independently with a `StandardScaler` plus log transform. A `PerformanceModel` is then trained per service using PyTorch (Adam optimizer with `ReduceLROnPlateau`), with best weights saved to `models/`. After training, `evaluate()` inverts the scaling to produce predictions in original units, and `plot()` generates prediction visualizations in `plots/`.
+Loads CSVs from `dataset/` and runs them through `PerformanceDataPipeline`, which validates the schema, rounds timestamps to 1-minute intervals, aggregates by (timestamp, service), fills gaps, and splits into train/test sets using either an interpolation or extrapolation strategy. Each service is normalized independently with a `StandardScaler` plus log transform. A `PerformanceModel` is then trained per service using PyTorch (Adam optimizer with `ReduceLROnPlateau`), with best weights saved to `models/`. After training, `evaluate()` inverts the scaling to produce predictions in original units, and `plot()` generates prediction visualizations in `results/{strategy}/`.
 
 #### `kpp.config`
 
@@ -166,7 +166,7 @@ After collecting data, run the predictor to train per-service models and generat
 poetry run python kpp/predictor/main.py
 ```
 
-Prediction plots are saved to `plots/`.
+Results (predictions, loss plots, metrics table) are saved to `results/{strategy}/` (e.g. `results/merged/`).
 
 ## Development
 

@@ -3,9 +3,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from torch.utils.data import DataLoader
-
 import torch
+from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
@@ -51,8 +50,9 @@ def plot(
     target_indices: list[int],
     service_name: str,
     metrics: dict[str, dict[str, float]],
+    output_dir: Path,
 ) -> None:
-    """Creates and saves the predictions plot to plots/predictions/{service_name}_predictions.png."""
+    """Creates and saves the predictions plot to output_dir/predictions/{service_name}_predictions.png."""
     unique_users = sorted(np.unique(user_counts_int))
 
     num_targets = len(target_columns)
@@ -86,7 +86,7 @@ def plot(
         ax.plot(x, mean_true, label="Ground Truth", color="blue", linewidth=2)
         ax.fill_between(x, mean_true - std_true, mean_true + std_true, color="blue", alpha=0.15)
 
-        ax.plot(x, mean_pred, label="Linear", color="green", linewidth=2)
+        ax.plot(x, mean_pred, label="Prediction", color="green", linewidth=2)
         ax.fill_between(x, mean_pred - std_pred, mean_pred + std_pred, color="green", alpha=0.15)
 
         col_metrics = metrics.get(col_name, {})
@@ -101,9 +101,9 @@ def plot(
     plt.xlabel("Concurrent Users")
     plt.tight_layout()
 
-    output_dir = Path("plots/predictions")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    file_path = output_dir / f"{service_name}_predictions.png"
+    predictions_dir = output_dir / "predictions"
+    predictions_dir.mkdir(parents=True, exist_ok=True)
+    file_path = predictions_dir / f"{service_name}_predictions.png"
     plt.savefig(file_path)
     plt.close()
 
@@ -113,17 +113,18 @@ def plot(
 def generate_metrics_table(
     all_metrics: dict[str, dict[str, dict[str, float]]],
     target_columns: list[str],
+    output_dir: Path,
 ) -> None:
-    """Prints a table with rows=services and columns=MAE+MAPE per target metric.
+    """Prints a Markdown table with rows=services and columns=MAE+MAPE per target metric.
 
-    Also writes an HTML version to plots/metrics_table.html for use in emails.
+    Includes a Mean row at the bottom. Also writes the table to output_dir/metrics_table.md.
     """
     if not all_metrics:
         logger.warning("No metrics to display.")
         return
 
     services = sorted(all_metrics.keys())
-    service_col_width = max(len("Microservice"), max(len(s) for s in services))
+    service_col_width = max(len("Microservice"), max(len(s) for s in services), len("**Mean**"))
 
     # Build header: one MAE + MAPE pair per target column
     col_headers = []
@@ -141,9 +142,11 @@ def generate_metrics_table(
     for _ in col_headers:
         sep_row += f"{'-' * (col_width + 2)}|"
 
-    print("\n### Prediction Metrics by Microservice\n")
-    print(header_row)
-    print(sep_row)
+    lines = ["\n### Prediction Metrics by Microservice\n", header_row, sep_row]
+
+    # Accumulators for mean computation
+    col_sums: dict[str, float] = {h: 0.0 for h in col_headers}
+    col_counts: dict[str, int] = {h: 0 for h in col_headers}
 
     for service in services:
         row = f"| {service:<{service_col_width}} |"
@@ -153,49 +156,45 @@ def generate_metrics_table(
             mape = col_metrics.get("MAPE", float("nan"))
             row += f" {mae:>{col_width}.6f} |"
             row += f" {mape:>{col_width}.2f} |"
-        print(row)
 
-    # Write HTML version
-    th = "style='border:1px solid #ccc;padding:6px 10px;background:#f2f2f2'"
-    td_left = "style='border:1px solid #ccc;padding:6px 10px'"
-    td_right = "style='border:1px solid #ccc;padding:6px 10px;text-align:right'"
+            short = col.replace(" (s)", "").replace(" (req/s)", "").replace(" ", "_")
+            if not np.isnan(mae):
+                col_sums[f"{short}_MAE"] += mae
+                col_counts[f"{short}_MAE"] += 1
+            if not np.isnan(mape):
+                col_sums[f"{short}_MAPE%"] += mape
+                col_counts[f"{short}_MAPE%"] += 1
+        lines.append(row)
 
-    html_lines = [
-        "<table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px'>",
-        "  <thead><tr>",
-        f"    <th {th}>Microservice</th>",
-    ]
+    # Mean row
+    mean_row = f"| {'**Mean**':<{service_col_width}} |"
     for h in col_headers:
-        html_lines.append(f"    <th {th}>{h}</th>")
-    html_lines += ["  </tr></thead>", "  <tbody>"]
+        if col_counts[h] > 0:
+            mean_val = col_sums[h] / col_counts[h]
+            mean_row += (
+                f" {mean_val:>{col_width}.6f} |" if "MAE" in h else f" {mean_val:>{col_width}.2f} |"
+            )
+        else:
+            mean_row += f" {'nan':>{col_width}} |"
+    lines.append(mean_row)
 
-    for i, service in enumerate(services):
-        bg = "" if i % 2 == 0 else " style='background:#f9f9f9'"
-        html_lines.append(f"  <tr{bg}>")
-        html_lines.append(f"    <td {td_left}>{service}</td>")
-        for col in target_columns:
-            col_metrics = all_metrics[service].get(col, {})
-            mae = col_metrics.get("MAE", float("nan"))
-            mape = col_metrics.get("MAPE", float("nan"))
-            html_lines.append(f"    <td {td_right}>{mae:.6f}</td>")
-            html_lines.append(f"    <td {td_right}>{mape:.2f}%</td>")
-        html_lines.append("  </tr>")
+    table_text = "\n".join(lines)
+    print(table_text)
 
-    html_lines += ["  </tbody>", "</table>"]
-
-    output_dir = Path("plots")
+    # Write Markdown version
     output_dir.mkdir(parents=True, exist_ok=True)
-    html_path = output_dir / "metrics_table.html"
-    html_path.write_text("\n".join(html_lines))
-    logger.info(f"HTML metrics table saved to {html_path}")
+    md_path = output_dir / "metrics_table.md"
+    md_path.write_text(table_text + "\n")
+    logger.info(f"Markdown metrics table saved to {md_path}")
 
 
 def plot_losses(
     train_losses: list[float],
     test_losses: list[float],
     service_name: str,
+    output_dir: Path,
 ) -> None:
-    """Plots train & test MAE loss curves and saves to plots/losses/{service_name}_losses.png."""
+    """Plots train & test MAE loss curves and saves to output_dir/losses/{service_name}_losses.png."""
     epochs = range(1, len(train_losses) + 1)
     train_mae = np.array(train_losses)
     test_mae = np.array(test_losses)
@@ -210,9 +209,9 @@ def plot_losses(
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
 
-    output_dir = Path("plots/losses")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    file_path = output_dir / f"{service_name}_losses.png"
+    losses_dir = output_dir / "losses"
+    losses_dir.mkdir(parents=True, exist_ok=True)
+    file_path = losses_dir / f"{service_name}_losses.png"
     plt.savefig(file_path)
     plt.close()
 
@@ -223,15 +222,15 @@ def main() -> None:
     setup_logging("predictor")
     config = PredictorConfig.from_yaml()
 
-    csv_path = "dataset/performance_results_normal.csv"
+    csv_path = "datasets/performance_results_normal.csv"
     if not Path(csv_path).exists():
         raise FileNotFoundError(
             f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
         )
 
     test_csv_path = (
-        "dataset/performance_results_overload.csv"
-        if config.pipeline.split_strategy == "extrapolation"
+        "datasets/performance_results_overload.csv"
+        if config.pipeline.split_strategy in ("extrapolation", "merged")
         else None
     )
     if test_csv_path is not None and not Path(test_csv_path).exists():
@@ -254,6 +253,8 @@ def main() -> None:
     )
 
     all_features = pipeline.feature_names
+
+    output_dir = Path("results") / config.pipeline.split_strategy
 
     all_metrics: dict[str, dict[str, dict[str, float]]] = {}
 
@@ -297,7 +298,7 @@ def main() -> None:
             learning_rate=config.training.learning_rate,
         )
 
-        plot_losses(train_losses, test_losses, service_name)
+        plot_losses(train_losses, test_losses, service_name, output_dir)
 
         logger.info(f"Evaluating and plotting {service_name}...")
 
@@ -330,9 +331,10 @@ def main() -> None:
             target_indices=target_indices,
             service_name=service_name,
             metrics=service_metrics,
+            output_dir=output_dir,
         )
 
-    generate_metrics_table(all_metrics, target_cols)
+    generate_metrics_table(all_metrics, target_cols, output_dir)
 
 
 if __name__ == "__main__":
