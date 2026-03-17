@@ -71,19 +71,33 @@ class SchedulerConfig:
 
 
 @dataclass(frozen=True)
+class ClassificationConfig:
+    good_upper: float = 40.0
+    danger_upper: float = 60.0
+    label_smoothing: float = 0.1
+
+
+@dataclass(frozen=True)
 class PredictorConfig:
     pipeline: PipelineConfig
     model: ModelConfig
     training: TrainingConfig
     scheduler: SchedulerConfig
+    classification: ClassificationConfig | None = None
 
     @classmethod
     def from_yaml(cls, path: Path = _PREDICTOR_CONFIG_PATH) -> "PredictorConfig":
         with open(path) as f:
             raw = yaml.safe_load(f)
+        classification = (
+            ClassificationConfig(**raw["classification"])
+            if "classification" in raw
+            else None
+        )
         return cls(
             pipeline=PipelineConfig(**raw["pipeline"]),
             model=ModelConfig(**raw["model"]),
             training=TrainingConfig(**raw["training"]),
             scheduler=SchedulerConfig(**raw["scheduler"]),
+            classification=classification,
         )

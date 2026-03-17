@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 type ServiceDatasets = Dict[str, Dict[str, TensorDataset]]
 
+CPU_PERCENTAGE_COL = "CPU Percentage"
+
 
 class PerformanceDataPipeline:
     """
@@ -54,6 +56,47 @@ class PerformanceDataPipeline:
         self.input_columns: List[str] = []  # Non-target feature names, set by _create_samples
         self.feature_names: List[str] = []  # All feature names as seen by the scaler
 
+    def _load_and_split(
+        self,
+        csv_path: str,
+        train_ratio: float,
+        split_strategy: str,
+        test_csv_path: str | None,
+    ) -> Dict[str, Tuple[pd.DataFrame, pd.DataFrame]]:
+        """Returns {service: (train_df, test_df)} with ratio features added."""
+        df = self._load_data(csv_path)
+        service_dfs = self._split_by_service(df)
+
+        if split_strategy in ("extrapolation", "merged"):
+            if test_csv_path is None:
+                raise ValueError(
+                    f"test_csv_path is required when split_strategy='{split_strategy}'"
+                )
+            test_df = self._load_data(test_csv_path)
+            test_service_dfs = self._split_by_service(test_df)
+
+            if split_strategy == "extrapolation":
+                return self._extrapolation_split(service_dfs, test_service_dfs)
+            else:
+                return self._merged_split_all(
+                    service_dfs, test_service_dfs, train_ratio
+                )
+
+        result: Dict[str, Tuple[pd.DataFrame, pd.DataFrame]] = {}
+        for service_name, service_df in service_dfs.items():
+            service_df = self._add_ratio_features(service_df)
+            if split_strategy == "interpolation":
+                train_raw, test_raw = self._interpolation_split(
+                    service_df, train_ratio, service_name
+                )
+            else:
+                raise ValueError(
+                    f"Unknown split_strategy '{split_strategy}'. "
+                    f"Valid options: 'interpolation', 'extrapolation', 'merged'."
+                )
+            result[service_name] = (train_raw, test_raw)
+        return result
+
     def run(
         self,
         csv_path: str,
@@ -78,57 +121,191 @@ class PerformanceDataPipeline:
         - "merged": concatenates csv_path and test_csv_path, then splits using middle
           user-count holdout (same as interpolation). Requires test_csv_path to be set.
         """
-        df = self._load_data(csv_path)
-        service_dfs = self._split_by_service(df)
-        processed_datasets = {}
+        paired = self._load_and_split(csv_path, train_ratio, split_strategy, test_csv_path)
+        fit_on_combined = split_strategy in ("extrapolation", "merged")
+        processed_datasets: ServiceDatasets = {}
 
-        if split_strategy in ("extrapolation", "merged"):
-            if test_csv_path is None:
-                raise ValueError(
-                    f"test_csv_path is required when split_strategy='{split_strategy}'"
-                )
-            test_df = self._load_data(test_csv_path)
-            test_service_dfs = self._split_by_service(test_df)
-
-            if split_strategy == "extrapolation":
-                paired = self._extrapolation_split(service_dfs, test_service_dfs)
-            else:
-                paired = self._merged_split_all(
-                    service_dfs, test_service_dfs, train_ratio
-                )
-
-            for service_name, (train_raw, test_raw) in paired.items():
-                train_norm, test_norm = self._normalize_service(
-                    train_raw, test_raw, service_name, fit_on_combined=True
-                )
-                X_train, y_train = self._create_samples(train_norm)
-                X_test, y_test = self._create_samples(test_norm)
-                processed_datasets[service_name] = {
-                    "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
-                    "test": TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
-                }
-            return processed_datasets
-
-        for service_name, service_df in service_dfs.items():
-            service_df = self._add_ratio_features(service_df)
-            if split_strategy == "interpolation":
-                train_raw, test_raw = self._interpolation_split(
-                    service_df, train_ratio, service_name
-                )
-            else:
-                raise ValueError(
-                    f"Unknown split_strategy '{split_strategy}'. "
-                    f"Valid options: 'interpolation', 'extrapolation', 'merged'."
-                )
-            train_df, test_df = self._normalize_service(train_raw, test_raw, service_name)
-            X_train, y_train = self._create_samples(train_df)
-            X_test, y_test = self._create_samples(test_df)
+        for service_name, (train_raw, test_raw) in paired.items():
+            train_norm, test_norm = self._normalize_service(
+                train_raw, test_raw, service_name, fit_on_combined=fit_on_combined
+            )
+            X_train, y_train = self._create_samples(train_norm)
+            X_test, y_test = self._create_samples(test_norm)
             processed_datasets[service_name] = {
                 "train": TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
                 "test": TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
             }
 
         return processed_datasets
+
+    def run_classification(
+        self,
+        csv_path: str,
+        thresholds: list[float],
+        train_ratio: float = 0.9,
+        split_strategy: str = "interpolation",
+        test_csv_path: str | None = None,
+    ) -> ServiceDatasets:
+        """
+        Like run(), but produces (X, labels) where labels are integer class indices
+        derived from CPU percentage thresholds.
+
+        Labels are extracted from raw CPU percentage *before* normalization so that
+        the classification targets are based on un-scaled physical values.
+
+        Split strategies:
+        - "interpolation" / "extrapolation" / "merged": same semantics as run().
+        - "stratified": merges csv_path + test_csv_path, then splits each class
+          independently so that every class contributes (1 - train_ratio) of its
+          rows to the test set.  Requires test_csv_path.  Unlike "merged", the
+          test set is guaranteed to contain all classes present in the data.
+        """
+        if split_strategy == "stratified":
+            return self._run_stratified_classification(
+                csv_path, test_csv_path, thresholds, train_ratio
+            )
+
+        paired = self._load_and_split(csv_path, train_ratio, split_strategy, test_csv_path)
+        fit_on_combined = split_strategy in ("extrapolation", "merged")
+        processed_datasets: ServiceDatasets = {}
+
+        for service_name, (train_raw, test_raw) in paired.items():
+            train_cpu_pct = self._compute_cpu_percentage(train_raw)
+            test_cpu_pct = self._compute_cpu_percentage(test_raw)
+
+            train_labels = self._apply_thresholds(train_cpu_pct, thresholds)
+            test_labels = self._apply_thresholds(test_cpu_pct, thresholds)
+
+            train_norm, test_norm = self._normalize_service(
+                train_raw, test_raw, service_name, fit_on_combined=fit_on_combined
+            )
+
+            X_train = train_norm.to_numpy(dtype=np.float32)
+            X_test = test_norm.to_numpy(dtype=np.float32)
+
+            processed_datasets[service_name] = {
+                "train": TensorDataset(
+                    torch.from_numpy(X_train),
+                    torch.from_numpy(train_labels).long(),
+                ),
+                "test": TensorDataset(
+                    torch.from_numpy(X_test),
+                    torch.from_numpy(test_labels).long(),
+                ),
+            }
+
+        return processed_datasets
+
+    def _run_stratified_classification(
+        self,
+        csv_path: str,
+        test_csv_path: str | None,
+        thresholds: list[float],
+        train_ratio: float,
+    ) -> ServiceDatasets:
+        """Merges both CSVs, stratifies the split by class label, returns (X, label) datasets."""
+        if test_csv_path is None:
+            raise ValueError("test_csv_path is required when split_strategy='stratified'")
+
+        train_df = self._load_data(csv_path)
+        overload_df = self._load_data(test_csv_path)
+        combined_df = pd.concat([train_df, overload_df], ignore_index=True)
+        service_dfs = self._split_by_service(combined_df)
+
+        processed_datasets: ServiceDatasets = {}
+        for service_name, service_df in sorted(service_dfs.items()):
+            service_df = self._add_ratio_features(service_df)
+
+            cpu_pct = self._compute_cpu_percentage(service_df)
+            labels = self._apply_thresholds(cpu_pct, thresholds)
+
+            train_raw, test_raw, train_labels, test_labels = self._stratified_cls_split(
+                service_df, labels, train_ratio, service_name
+            )
+
+            train_norm, test_norm = self._normalize_service(
+                train_raw, test_raw, service_name, fit_on_combined=False
+            )
+
+            X_train = train_norm.to_numpy(dtype=np.float32)
+            X_test = test_norm.to_numpy(dtype=np.float32)
+
+            processed_datasets[service_name] = {
+                "train": TensorDataset(
+                    torch.from_numpy(X_train),
+                    torch.from_numpy(train_labels).long(),
+                ),
+                "test": TensorDataset(
+                    torch.from_numpy(X_test),
+                    torch.from_numpy(test_labels).long(),
+                ),
+            }
+
+        return processed_datasets
+
+    @staticmethod
+    def _stratified_cls_split(
+        df: pd.DataFrame,
+        labels: np.ndarray,
+        train_ratio: float,
+        service_name: str,
+        rng_seed: int = 42,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray]:
+        """Stratified random split: each class contributes (1 - train_ratio) rows to the test set.
+
+        Returns (train_df, test_df, train_labels, test_labels).
+        Each class with ≥2 samples sends at least 1 to the test set.
+        Single-sample classes are kept in training only.
+        """
+        rng = np.random.default_rng(rng_seed)
+        train_idx: list[int] = []
+        test_idx: list[int] = []
+
+        for cls in np.unique(labels):
+            cls_indices = np.where(labels == cls)[0]
+            n_test = max(1, round(len(cls_indices) * (1 - train_ratio)))
+            if len(cls_indices) < 2:
+                train_idx.extend(cls_indices.tolist())
+                continue
+            n_test = min(n_test, len(cls_indices) - 1)
+            sampled = rng.choice(cls_indices, size=n_test, replace=False)
+            test_set = set(sampled.tolist())
+            test_idx.extend(sorted(test_set))
+            train_idx.extend([i for i in cls_indices.tolist() if i not in test_set])
+
+        train_idx_sorted = sorted(train_idx)
+        test_idx_sorted = sorted(test_idx)
+
+        unique_vals, counts = np.unique(labels, return_counts=True)
+        class_counts = {int(c): int(n) for c, n in zip(unique_vals, counts, strict=True)}
+        logger.info(
+            f"[{service_name}] Stratified split: {len(train_idx_sorted)} train, "
+            f"{len(test_idx_sorted)} test rows. Class distribution: {class_counts}"
+        )
+
+        return (
+            df.iloc[train_idx_sorted].copy(),
+            df.iloc[test_idx_sorted].copy(),
+            labels[train_idx_sorted],
+            labels[test_idx_sorted],
+        )
+
+    @staticmethod
+    def _compute_cpu_percentage(df: pd.DataFrame) -> np.ndarray:
+        """Returns cpu_usage / (cpu_request * replicas) * 100."""
+        cpu_usage = df[PerformanceDataPipeline.CPU_USAGE_COL].to_numpy(dtype=np.float64)
+        cpu_request = df[PerformanceDataPipeline.CPU_REQUEST_COL].to_numpy(dtype=np.float64)
+        replicas = df[PerformanceDataPipeline.REPLICAS_COL].to_numpy(dtype=np.float64)
+        result: np.ndarray = cpu_usage / (cpu_request * replicas) * 100
+        return result
+
+    @staticmethod
+    def _apply_thresholds(values: np.ndarray, thresholds: list[float]) -> np.ndarray:
+        """Assigns integer class labels: 0 below thresholds[0], 1 between, 2 above thresholds[1]."""
+        labels = np.zeros(len(values), dtype=np.int64)
+        labels[values >= thresholds[0]] = 1
+        labels[values >= thresholds[1]] = 2
+        return labels
 
     def _load_data(self, path: str) -> pd.DataFrame:
         """

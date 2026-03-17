@@ -268,6 +268,86 @@ def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
     assert abs(scaler.mean_[rt_col_idx] - expected_mean) < 1e-3
 
 
+def test_run_classification_returns_long_labels():
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run_classification(
+        str(FIXTURE_CSV), thresholds=[40.0, 60.0], train_ratio=_TRAIN_RATIO
+    )
+    assert set(result.keys()) == {"adservice", "frontend"}
+    for service_data in result.values():
+        labels = service_data["train"].tensors[1]
+        assert labels.dtype == torch.long
+        assert labels.ndim == 1
+        assert set(labels.tolist()).issubset({0, 1, 2})
+
+
+def test_run_classification_x_shape_matches_regression():
+    reg_pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    reg_result = reg_pipeline.run(str(FIXTURE_CSV), train_ratio=_TRAIN_RATIO)
+
+    cls_pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    cls_result = cls_pipeline.run_classification(
+        str(FIXTURE_CSV), thresholds=[40.0, 60.0], train_ratio=_TRAIN_RATIO
+    )
+
+    for service in reg_result:
+        # Classification X has all features (no target split), regression X excludes targets
+        reg_total_features = (
+            reg_result[service]["train"].tensors[0].shape[1]
+            + reg_result[service]["train"].tensors[1].shape[1]
+        )
+        cls_features = cls_result[service]["train"].tensors[0].shape[1]
+        assert cls_features == reg_total_features
+
+
+def test_run_classification_stratified_all_classes_in_test(tmp_path):
+    # Build a dataset where cpu_pct spans all three classes:
+    #   good (<40%):       cpu_usage=0.02  → pct=20%
+    #   danger (40-60%):   cpu_usage=0.05  → pct=50%
+    #   bottleneck (≥60%): cpu_usage=0.08  → pct=80%
+    # (cpu_request=0.1, replicas=1 → pct = cpu_usage / 0.1 * 100)
+    # Each class uses a non-overlapping timestamp range so the pipeline does not
+    # average rows from different classes together during its groupby aggregation.
+    n = 30
+
+    def _make_rows(cpu_usage_val: float, ts_start: float) -> pd.DataFrame:
+        return pd.DataFrame({
+            "Timestamp": np.arange(ts_start, ts_start + n * 60, 60, dtype=float),
+            "Service": ["svc"] * n,
+            "User Count": [50.0] * n,
+            "Response Time (s)": [0.01] * n,
+            "Throughput (req/s)": [10.0] * n,
+            "CPU Usage": [cpu_usage_val] * n,
+            "Replicas": [1.0] * n,
+            "CPU Request": [0.1] * n,
+        })
+
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    # Each class occupies a distinct time window (n * 60 seconds apart)
+    _make_rows(0.02, 1_000_000.0).to_csv(normal_csv, index=False)
+    pd.concat(
+        [_make_rows(0.05, 1_000_000.0 + n * 60), _make_rows(0.08, 1_000_000.0 + 2 * n * 60)],
+        ignore_index=True,
+    ).to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run_classification(
+        str(normal_csv),
+        thresholds=[40.0, 60.0],
+        train_ratio=0.9,
+        split_strategy="stratified",
+        test_csv_path=str(overload_csv),
+    )
+
+    assert "svc" in result
+    test_labels = result["svc"]["test"].tensors[1].tolist()
+    # All three classes must be present in the test set
+    assert set(test_labels) == {0, 1, 2}
+    train_labels = result["svc"]["train"].tensors[1].tolist()
+    assert set(train_labels) == {0, 1, 2}
+
+
 def test_evaluate_inverts_log_transform_for_response_time():
     # Set up a scaler fitted on log10-space values for two features: User Count + Response Time.
     feature_names = ["User Count", "Response Time (s)"]

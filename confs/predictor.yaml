@@ -18,3 +18,8 @@ scheduler:
   factor: 0.5
   patience: 20
   min_lr: 0.000001
+
+classification:
+  good_upper: 40.0
+  danger_upper: 60.0
+  label_smoothing: 0.1
