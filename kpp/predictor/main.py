@@ -8,10 +8,16 @@ from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
+from kpp.predictor.classification import DEFAULT_TARGET_COLUMNS, validate_csv_path
 from kpp.predictor.model import PerformanceModel, evaluate, train_model
 from kpp.predictor.pipeline import PerformanceDataPipeline
 
 logger = logging.getLogger("predictor")
+
+
+def _shorten_column_name(col: str) -> str:
+    """Strips unit suffixes and replaces spaces with underscores for table headers."""
+    return _shorten_column_name(col)
 
 
 def compute_metrics(
@@ -129,7 +135,7 @@ def generate_metrics_table(
     # Build header: one MAE + MAPE pair per target column
     col_headers = []
     for col in target_columns:
-        short = col.replace(" (s)", "").replace(" (req/s)", "").replace(" ", "_")
+        short = _shorten_column_name(col)
         col_headers.append(f"{short}_MAE")
         col_headers.append(f"{short}_MAPE%")
 
@@ -157,7 +163,7 @@ def generate_metrics_table(
             row += f" {mae:>{col_width}.6f} |"
             row += f" {mape:>{col_width}.2f} |"
 
-            short = col.replace(" (s)", "").replace(" (req/s)", "").replace(" ", "_")
+            short = _shorten_column_name(col)
             if not np.isnan(mae):
                 col_sums[f"{short}_MAE"] += mae
                 col_counts[f"{short}_MAE"] += 1
@@ -223,26 +229,17 @@ def main() -> None:
     config = PredictorConfig.from_yaml()
 
     csv_path = "datasets/performance_results_normal.csv"
-    if not Path(csv_path).exists():
-        raise FileNotFoundError(
-            f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
-        )
+    validate_csv_path(csv_path)
 
     test_csv_path = (
         "datasets/performance_results_overload.csv"
         if config.pipeline.split_strategy in ("extrapolation", "merged")
         else None
     )
-    if test_csv_path is not None and not Path(test_csv_path).exists():
-        raise FileNotFoundError(
-            f"Overload CSV data file not found: '{test_csv_path}'. Place your collected data file at this path."
-        )
+    if test_csv_path is not None:
+        validate_csv_path(test_csv_path, description="Overload CSV data file")
 
-    target_cols = [
-        PerformanceDataPipeline.RESPONSE_TIME_COL,
-        PerformanceDataPipeline.THROUGHPUT_COL,
-        PerformanceDataPipeline.CPU_USAGE_COL,
-    ]
+    target_cols = DEFAULT_TARGET_COLUMNS
 
     pipeline = PerformanceDataPipeline(target_cols)
     datasets = pipeline.run(

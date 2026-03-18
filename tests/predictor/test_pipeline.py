@@ -238,8 +238,7 @@ def test_run_aggregates_rows_with_same_rounded_timestamp(tmp_path):
 def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
     # Build 10 rows with distinct user counts [1..10].
     # Interpolation split with train_ratio=0.7 → n_holdout=max(1, round(10*0.3))=3
-    # Holdout user counts are the middle 3: [4, 5, 6]
-    # Training rows are user counts [1, 2, 3, 7, 8, 9, 10]
+    # candidates = [2..9]; rng_seed=42 selects 3 holdout values randomly.
     n = 10
     max_rt = 100.0
     rt_values = [max_rt, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 5.0]
@@ -261,8 +260,13 @@ def test_normalize_service_fits_scaler_on_log_response_time(tmp_path):
 
     scaler = pipeline.scalers["svc"]
     rt_col_idx = list(scaler.feature_names_in_).index("Response Time (s)")
-    # Training rows are user counts [1,2,3,7,8,9,10] → indices [0,1,2,6,7,8,9]
-    train_indices = [0, 1, 2, 6, 7, 8, 9]
+    # Derive expected train indices from the same random seed used in _interpolation_split
+    rng = np.random.default_rng(42)
+    candidates = list(range(2, 10))  # sorted_counts[1:-1] = [2..9]
+    n_holdout = max(1, round(10 * 0.3))  # = 3
+    holdout = set(rng.choice(candidates, size=n_holdout, replace=False).tolist())
+    train_user_counts = {uc for uc in range(1, 11) if uc not in holdout}
+    train_indices = [i for i in range(10) if (i + 1) in train_user_counts]
     train_rt = [rt_values[i] for i in train_indices]
     expected_mean = float(np.mean(np.log10(np.array(train_rt) + 1e-9)))
     assert abs(scaler.mean_[rt_col_idx] - expected_mean) < 1e-3
@@ -346,6 +350,172 @@ def test_run_classification_stratified_all_classes_in_test(tmp_path):
     assert set(test_labels) == {0, 1, 2}
     train_labels = result["svc"]["train"].tensors[1].tolist()
     assert set(train_labels) == {0, 1, 2}
+
+
+def test_run_classification_interpolation_split_holds_out_inner_user_count():
+    # Fixture has 3 unique user counts: train_ratio=0.9 → n_holdout=1, only inner candidate held out.
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run_classification(
+        str(FIXTURE_CSV), thresholds=[40.0, 60.0], train_ratio=0.9, split_strategy="interpolation"
+    )
+    assert set(result.keys()) == {"adservice", "frontend"}
+    for service_data in result.values():
+        n_test = service_data["test"].tensors[1].shape[0]
+        assert n_test == 11  # 11 rows for the held-out user count
+
+
+def test_run_classification_extrapolation_split_returns_tensors(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    df.to_csv(normal_csv, index=False)
+    overload_df = df.copy()
+    overload_df["User Count"] = overload_df["User Count"] * 10
+    overload_df.to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run_classification(
+        str(normal_csv),
+        thresholds=[40.0, 60.0],
+        split_strategy="extrapolation",
+        test_csv_path=str(overload_csv),
+    )
+    assert set(result.keys()) == {"adservice", "frontend"}
+    for service_data in result.values():
+        assert service_data["train"].tensors[1].dtype == torch.long
+        assert service_data["test"].tensors[1].dtype == torch.long
+
+
+def test_run_classification_merged_split_returns_correct_services(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    df.to_csv(normal_csv, index=False)
+    overload_df = df.copy()
+    overload_df["User Count"] = overload_df["User Count"] * 10
+    overload_df.to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run_classification(
+        str(normal_csv),
+        thresholds=[40.0, 60.0],
+        split_strategy="merged",
+        test_csv_path=str(overload_csv),
+    )
+    assert set(result.keys()) == {"adservice", "frontend"}
+
+
+def test_run_classification_stratified_raises_without_test_csv_path():
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    with pytest.raises(ValueError, match="test_csv_path is required"):
+        pipeline.run_classification(
+            str(FIXTURE_CSV), thresholds=[40.0, 60.0], split_strategy="stratified"
+        )
+
+
+def test_run_classification_raises_on_missing_required_column(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV).drop(columns=["CPU Usage"])
+    bad_csv = tmp_path / "bad.csv"
+    df.to_csv(bad_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    with pytest.raises(ValueError, match="CPU Usage"):
+        pipeline.run_classification(str(bad_csv), thresholds=[40.0, 60.0])
+
+
+def test_add_ratio_features_zero_replicas_produces_nan(tmp_path):
+    # Verify zero replicas → NaN in LOAD_PER_REPLICA_COL, not inf or error
+    df = pd.DataFrame({
+        "Timestamp": [1000.0 + i * 60 for i in range(3)],
+        "Service": ["svc"] * 3,
+        "User Count": [4.0, 6.0, 8.0],
+        "Response Time (s)": [0.01] * 3,
+        "Throughput (req/s)": [10.0] * 3,
+        "CPU Usage": [0.1] * 3,
+        "Replicas": [0.0, 1.0, 2.0],  # zero in first row
+        "CPU Request": [0.5] * 3,
+    })
+    csv_path = tmp_path / "zero_replicas.csv"
+    df.to_csv(csv_path, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    # Pipeline should not crash, and should fill NaN via ffill/bfill during _load_data
+    pipeline.run(str(csv_path), split_strategy="interpolation")
+
+
+def test_add_ratio_features_zero_user_count_produces_nan(tmp_path):
+    # Verify zero user_count → NaN in CPU_PER_USER_COL, not inf or error
+    df = pd.DataFrame({
+        "Timestamp": [1000.0 + i * 60 for i in range(3)],
+        "Service": ["svc"] * 3,
+        "User Count": [0.0, 6.0, 8.0],  # zero in first row
+        "Response Time (s)": [0.01] * 3,
+        "Throughput (req/s)": [10.0] * 3,
+        "CPU Usage": [0.1] * 3,
+        "Replicas": [1.0, 1.0, 1.0],
+        "CPU Request": [0.5] * 3,
+    })
+    csv_path = tmp_path / "zero_users.csv"
+    df.to_csv(csv_path, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    pipeline.run(str(csv_path), split_strategy="interpolation")
+
+
+def test_run_stratified_regression_returns_regression_datasets(tmp_path):
+    # Build a dataset with all 3 CPU classes across non-overlapping time windows.
+    # cpu_request=0.1, replicas=1 → pct = cpu_usage / 0.1 * 100
+    # good (<40%):       cpu_usage=0.02 → pct=20%
+    # danger (40-60%):   cpu_usage=0.05 → pct=50%
+    # bottleneck (≥60%): cpu_usage=0.08 → pct=80%
+    n = 30
+
+    def _make_rows(cpu_usage_val: float, ts_start: float) -> pd.DataFrame:
+        return pd.DataFrame({
+            "Timestamp": np.arange(ts_start, ts_start + n * 60, 60, dtype=float),
+            "Service": ["svc"] * n,
+            "User Count": [50.0] * n,
+            "Response Time (s)": [0.01] * n,
+            "Throughput (req/s)": [10.0] * n,
+            "CPU Usage": [cpu_usage_val] * n,
+            "Replicas": [1.0] * n,
+            "CPU Request": [0.1] * n,
+        })
+
+    normal_csv = tmp_path / "normal.csv"
+    overload_csv = tmp_path / "overload.csv"
+    _make_rows(0.02, 1_000_000.0).to_csv(normal_csv, index=False)
+    pd.concat(
+        [_make_rows(0.05, 1_000_000.0 + n * 60), _make_rows(0.08, 1_000_000.0 + 2 * n * 60)],
+        ignore_index=True,
+    ).to_csv(overload_csv, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.run_stratified_regression(
+        str(normal_csv),
+        test_csv_path=str(overload_csv),
+        thresholds=[40.0, 60.0],
+        train_ratio=0.9,
+    )
+
+    assert "svc" in result
+    train_ds = result["svc"]["train"]
+    test_ds = result["svc"]["test"]
+
+    # y must be float (regression), not integer labels
+    assert train_ds.tensors[1].dtype == torch.float32
+    assert test_ds.tensors[1].dtype == torch.float32
+
+    # y shape: (samples, num_targets)
+    assert train_ds.tensors[1].ndim == 2
+    assert train_ds.tensors[1].shape[1] == len(TARGET_COLUMNS)
+
+    # X and y must have same number of rows
+    assert train_ds.tensors[0].shape[0] == train_ds.tensors[1].shape[0]
+    assert test_ds.tensors[0].shape[0] == test_ds.tensors[1].shape[0]
+
+    # Scaler must be stored
+    assert "svc" in pipeline.scalers
 
 
 def test_evaluate_inverts_log_transform_for_response_time():

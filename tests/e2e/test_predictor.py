@@ -35,23 +35,28 @@ _EXTRAPOLATION_MAPE_CEILINGS = {
 }
 
 
-def _train_and_assert(pipeline, datasets, mape_ceilings):
-    """Train a model per service and run quality/sanity assertions."""
+def test_interpolation_experiment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    pipeline = PerformanceDataPipeline(_TARGET_COLS)
+    datasets = pipeline.run(
+        str(_NORMAL_CSV),
+        train_ratio=_CONFIG.pipeline.train_ratio,
+        split_strategy="interpolation",
+    )
+
     assert datasets, "Pipeline returned no service datasets"
 
     for service_name, data_split in sorted(datasets.items()):
-        train_dataset = data_split["train"]
-        test_dataset = data_split["test"]
-
         train_loader = DataLoader(
-            train_dataset, batch_size=_CONFIG.training.batch_size, shuffle=True, num_workers=0
+            data_split["train"], batch_size=_CONFIG.training.batch_size, shuffle=True, num_workers=0
         )
         test_loader = DataLoader(
-            test_dataset, batch_size=_CONFIG.training.batch_size, shuffle=False, num_workers=0
+            data_split["test"], batch_size=_CONFIG.training.batch_size, shuffle=False, num_workers=0
         )
 
-        input_size = train_dataset.tensors[0].shape[1]
-        output_size = train_dataset.tensors[1].shape[1]
+        input_size = data_split["train"].tensors[0].shape[1]
+        output_size = data_split["train"].tensors[1].shape[1]
 
         torch.manual_seed(42)
         model = PerformanceModel(
@@ -89,23 +94,10 @@ def _train_and_assert(pipeline, datasets, mape_ceilings):
         metrics = compute_metrics(real_predictions, real_targets, _TARGET_COLS, target_indices)
         for col, col_metrics in metrics.items():
             mape = col_metrics["MAPE"]
-            ceiling = mape_ceilings[col]
+            ceiling = _INTERPOLATION_MAPE_CEILINGS[col]
             assert mape < ceiling, (
                 f"Quality gate failed for '{service_name}' / '{col}': MAPE={mape:.2f}% >= {ceiling}%"
             )
-
-
-def test_interpolation_experiment(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-
-    pipeline = PerformanceDataPipeline(_TARGET_COLS)
-    datasets = pipeline.run(
-        str(_NORMAL_CSV),
-        train_ratio=_CONFIG.pipeline.train_ratio,
-        split_strategy="interpolation",
-    )
-
-    _train_and_assert(pipeline, datasets, _INTERPOLATION_MAPE_CEILINGS)
 
 
 def test_extrapolation_experiment(tmp_path, monkeypatch):
@@ -118,4 +110,56 @@ def test_extrapolation_experiment(tmp_path, monkeypatch):
         test_csv_path=str(_OVERLOAD_CSV),
     )
 
-    _train_and_assert(pipeline, datasets, _EXTRAPOLATION_MAPE_CEILINGS)
+    assert datasets, "Pipeline returned no service datasets"
+
+    for service_name, data_split in sorted(datasets.items()):
+        train_loader = DataLoader(
+            data_split["train"], batch_size=_CONFIG.training.batch_size, shuffle=True, num_workers=0
+        )
+        test_loader = DataLoader(
+            data_split["test"], batch_size=_CONFIG.training.batch_size, shuffle=False, num_workers=0
+        )
+
+        input_size = data_split["train"].tensors[0].shape[1]
+        output_size = data_split["train"].tensors[1].shape[1]
+
+        torch.manual_seed(42)
+        model = PerformanceModel(
+            input_size=input_size,
+            output_size=output_size,
+            hidden_size=_CONFIG.model.hidden_size,
+            hidden_size_2=_CONFIG.model.hidden_size_2,
+            head_hidden_size=_CONFIG.model.head_hidden_size,
+            dropout=_CONFIG.model.dropout,
+        )
+        train_model(
+            config=_CONFIG,
+            service_name=service_name,
+            model=model,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            epochs=_CONFIG.training.epochs,
+            learning_rate=_CONFIG.training.learning_rate,
+        )
+
+        scaler = pipeline.scalers[service_name]
+        all_features = list(scaler.feature_names_in_)
+
+        real_predictions, real_targets, _ = evaluate(
+            model=model,
+            test_loader=test_loader,
+            scaler=scaler,
+            target_columns=_TARGET_COLS,
+            feature_names=all_features,
+            x_feature_names=list(pipeline.input_columns),
+            log_transform_columns=PerformanceDataPipeline.LOG_TRANSFORM_COLUMNS,
+        )
+
+        target_indices = [all_features.index(col) for col in _TARGET_COLS]
+        metrics = compute_metrics(real_predictions, real_targets, _TARGET_COLS, target_indices)
+        for col, col_metrics in metrics.items():
+            mape = col_metrics["MAPE"]
+            ceiling = _EXTRAPOLATION_MAPE_CEILINGS[col]
+            assert mape < ceiling, (
+                f"Quality gate failed for '{service_name}' / '{col}': MAPE={mape:.2f}% >= {ceiling}%"
+            )

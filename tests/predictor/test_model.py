@@ -29,21 +29,16 @@ def test_forward_produces_correct_output_shape_dimension():
     assert output.shape == torch.Size([8, 3])
 
 
-def _make_loader(n_samples: int, n_features: int, target_columns: list[str], feature_names: list[str], rng: np.random.Generator, num_workers: int = 1) -> tuple[DataLoader, MinMaxScaler]:
-    raw_data = rng.random((n_samples, n_features)).astype(np.float32)
+def test_evaluate_raises_when_target_not_in_features():
+    rng = np.random.default_rng(42)
+    raw_data = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
     scaler = MinMaxScaler()
     scaler.fit(raw_data)
     scaled = scaler.transform(raw_data).astype(np.float32)
-    target_indices = [feature_names.index(c) for c in target_columns]
-    X = torch.tensor(scaled)  # (N_SAMPLES, N_FEATURES) — 2D flat
+    target_indices = [FEATURE_NAMES.index(c) for c in TARGET_COLUMNS]
+    X = torch.tensor(scaled)
     y = torch.tensor(scaled[:, target_indices])
-    loader = DataLoader(TensorDataset(X, y), batch_size=4, num_workers=num_workers)
-    return loader, scaler
-
-
-def test_evaluate_raises_when_target_not_in_features():
-    rng = np.random.default_rng(42)
-    loader, scaler = _make_loader(N_SAMPLES, N_FEATURES, TARGET_COLUMNS, FEATURE_NAMES, rng)
+    loader = DataLoader(TensorDataset(X, y), batch_size=4, num_workers=1)
     model = PerformanceModel(input_size=N_FEATURES, output_size=len(TARGET_COLUMNS))
 
     with pytest.raises(ValueError, match="not found in feature_names"):
@@ -58,7 +53,14 @@ def test_evaluate_raises_when_target_not_in_features():
 
 def test_evaluate_raises_when_feature_count_mismatches_scaler():
     rng = np.random.default_rng(42)
-    loader, scaler = _make_loader(N_SAMPLES, N_FEATURES, TARGET_COLUMNS, FEATURE_NAMES, rng)
+    raw_data = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
+    scaler = MinMaxScaler()
+    scaler.fit(raw_data)
+    scaled = scaler.transform(raw_data).astype(np.float32)
+    target_indices = [FEATURE_NAMES.index(c) for c in TARGET_COLUMNS]
+    X = torch.tensor(scaled)
+    y = torch.tensor(scaled[:, target_indices])
+    loader = DataLoader(TensorDataset(X, y), batch_size=4, num_workers=1)
     model = PerformanceModel(input_size=N_FEATURES, output_size=len(TARGET_COLUMNS))
 
     too_few_features = FEATURE_NAMES[:-1]  # one less than scaler was fitted on
@@ -74,7 +76,14 @@ def test_evaluate_raises_when_feature_count_mismatches_scaler():
 
 def test_evaluate_raises_when_user_count_missing():
     rng = np.random.default_rng(42)
-    loader, _ = _make_loader(N_SAMPLES, N_FEATURES, TARGET_COLUMNS, FEATURE_NAMES, rng)
+    raw_data = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
+    scaler = MinMaxScaler()
+    scaler.fit(raw_data)
+    scaled = scaler.transform(raw_data).astype(np.float32)
+    target_indices = [FEATURE_NAMES.index(c) for c in TARGET_COLUMNS]
+    X = torch.tensor(scaled)
+    y = torch.tensor(scaled[:, target_indices])
+    loader = DataLoader(TensorDataset(X, y), batch_size=4, num_workers=1)
     model = PerformanceModel(input_size=N_FEATURES, output_size=len(TARGET_COLUMNS))
 
     no_user_count = [f for f in FEATURE_NAMES if f != "User Count"]
@@ -122,7 +131,14 @@ def test_evaluate_returns_predictions_in_original_scale():
 
 def test_evaluate_returns_user_counts_as_integers():
     rng = np.random.default_rng(42)
-    loader, scaler = _make_loader(N_SAMPLES, N_FEATURES, TARGET_COLUMNS, FEATURE_NAMES, rng)
+    raw_data = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
+    scaler = MinMaxScaler()
+    scaler.fit(raw_data)
+    scaled = scaler.transform(raw_data).astype(np.float32)
+    target_indices = [FEATURE_NAMES.index(c) for c in TARGET_COLUMNS]
+    X = torch.tensor(scaled)
+    y = torch.tensor(scaled[:, target_indices])
+    loader = DataLoader(TensorDataset(X, y), batch_size=4, num_workers=1)
     model = PerformanceModel(input_size=N_FEATURES, output_size=len(TARGET_COLUMNS))
 
     _, _, user_counts_int = evaluate(
@@ -139,12 +155,11 @@ def test_train_model_restores_best_weights_in_memory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     rng = np.random.default_rng(42)
-    loader, _ = _make_loader(N_SAMPLES, N_FEATURES, TARGET_COLUMNS, FEATURE_NAMES, rng, num_workers=0)
-    target_indices = [FEATURE_NAMES.index(c) for c in TARGET_COLUMNS]
     raw_data = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
     scaler = MinMaxScaler()
     scaler.fit(raw_data)
     scaled = scaler.transform(raw_data).astype(np.float32)
+    target_indices = [FEATURE_NAMES.index(c) for c in TARGET_COLUMNS]
     X = torch.tensor(scaled)
     y = torch.tensor(scaled[:, target_indices])
     train_loader = DataLoader(TensorDataset(X, y), batch_size=4, num_workers=0)

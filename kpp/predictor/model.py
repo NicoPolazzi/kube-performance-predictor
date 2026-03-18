@@ -222,6 +222,7 @@ def evaluate(
         for col in log_transform_columns:
             if col in feature_names:
                 idx = feature_names.index(col)
+                # Invert log10(x + 1e-9) → 10^y - 1e-9 to recover original scale
                 real_predictions[:, idx] = (10 ** real_predictions[:, idx]) - 1e-9
                 real_targets[:, idx] = (10 ** real_targets[:, idx]) - 1e-9
 

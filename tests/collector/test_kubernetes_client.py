@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from kpp.collector.kubernetes_client import PATCH_TIMEOUT_SECONDS, KubernetesClient
+from kpp.collector.kubernetes_client import MAX_CONSECUTIVE_API_ERRORS, PATCH_TIMEOUT_SECONDS, KubernetesClient
 
 
 def _make_pod(app_label: str) -> SimpleNamespace:
@@ -196,3 +196,31 @@ def test_scale_service_deployment_patches_replicas_and_waits(mocker):
     apps_api.read_namespaced_deployment.assert_called_once_with(
         name="currencyservice", namespace="default"
     )
+
+
+def test_wait_for_patch_raises_after_max_consecutive_api_errors(mocker):
+    from kubernetes.client import ApiException
+
+    apps_api = mocker.MagicMock()
+    env_users = SimpleNamespace(name="USERS", value="0")
+    env_rate = SimpleNamespace(name="RATE", value="0")
+    source = SimpleNamespace(
+        spec=SimpleNamespace(
+            replicas=0,
+            template=SimpleNamespace(
+                spec=SimpleNamespace(containers=[SimpleNamespace(env=[env_users, env_rate])])
+            ),
+        )
+    )
+    patched = _make_not_ready_deployment(generation=2)
+    apps_api.read_namespaced_deployment.side_effect = [source] + [
+        ApiException(status=500, reason="Internal Server Error")
+    ] * MAX_CONSECUTIVE_API_ERRORS
+    apps_api.patch_namespaced_deployment.return_value = patched
+
+    mocker.patch("kpp.collector.kubernetes_client.time.time", return_value=0)
+    mocker.patch("kpp.collector.kubernetes_client.time.sleep")
+
+    client = KubernetesClient(core_api=mocker.MagicMock(), apps_api=apps_api)
+    with pytest.raises(RuntimeError, match="consecutive API errors"):
+        client.change_performance_test_load("10")

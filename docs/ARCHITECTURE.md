@@ -10,7 +10,7 @@ Connects to a live Kubernetes cluster, scales load via the loadgenerator deploym
 
 CSV columns: `Timestamp`, `Service`, `User Count`, `Response Time (s)`, `Throughput (req/s)`, `CPU Usage`, `Replicas`, `CPU Request`
 
-- `collector.py` — Entry point; for each experiment, scales replicas, ramps load via loadgenerator, waits 60s warmup, collects metrics, cools down 180s; try/finally ensures load stops and replicas reset on exit
+- `main.py` — Entry point; for each experiment, scales replicas, ramps load via loadgenerator, waits 120s warmup (2× query interval), collects metrics, cools down 180s; try/finally ensures load stops and replicas reset on exit
 - `sample.py` — `PerformanceSample` frozen dataclass: `service_name`, `response_time`, `throughput`, `cpu_usage`, `replicas`, `cpu_request`
 - `kubernetes_client.py` — Service discovery (`get_services_names`, excludes `redis-cart`); CPU request/replica queries per service; patches loadgenerator env vars (`USERS`, `RATE`) and scales it; can scale any service deployment and wait for rollout
 - `prometheus_client.py` — PromQL queries for response time, throughput, and CPU via Istio metrics; returns `math.nan` for missing data
@@ -37,7 +37,7 @@ Loads collected CSV data, normalizes per service, trains a linear model for each
 ## Key Design Decisions
 
 - The collector excludes non-HTTP services such as `redis-cart` from service discovery (no Istio metrics exposed)
-- A 60-second warmup period matches Prometheus's `rate()` window before sampling begins
+- A 120-second warmup period (2× the 60s query interval) allows Prometheus's `rate()` window to stabilize before sampling begins
 - A 180s cooldown is performed between load experiments
 - Replica scaling is part of each experiment: each `(user_count, replicas)` pair is tested; all services reset to 1 replica in a try/finally cleanup
 - `KubernetesClient` polls deployment status with a 180s timeout after any patch, ensuring metrics are only collected after full rollout

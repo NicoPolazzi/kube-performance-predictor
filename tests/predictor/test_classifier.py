@@ -10,16 +10,6 @@ N_SAMPLES = 20
 NUM_CLASSES = 3
 
 
-def _make_cls_loader(n_samples: int, n_features: int, num_classes: int, rng: np.random.Generator) -> DataLoader:
-    X = rng.random((n_samples, n_features)).astype(np.float32)
-    y = rng.integers(0, num_classes, size=n_samples).astype(np.int64)
-    return DataLoader(
-        TensorDataset(torch.from_numpy(X), torch.from_numpy(y)),
-        batch_size=4,
-        num_workers=0,
-    )
-
-
 def test_classification_model_forward_produces_correct_shape():
     model = ClassificationModel(input_size=N_FEATURES, num_classes=NUM_CLASSES)
     x = torch.randn(8, N_FEATURES)
@@ -31,8 +21,21 @@ def test_train_classifier_restores_best_weights(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     rng = np.random.default_rng(42)
-    train_loader = _make_cls_loader(N_SAMPLES, N_FEATURES, NUM_CLASSES, rng)
-    test_loader = _make_cls_loader(N_SAMPLES, N_FEATURES, NUM_CLASSES, rng)
+    X_train = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
+    y_train = rng.integers(0, NUM_CLASSES, size=N_SAMPLES).astype(np.int64)
+    train_loader = DataLoader(
+        TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train)),
+        batch_size=4,
+        num_workers=0,
+    )
+
+    X_test = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
+    y_test = rng.integers(0, NUM_CLASSES, size=N_SAMPLES).astype(np.int64)
+    test_loader = DataLoader(
+        TensorDataset(torch.from_numpy(X_test), torch.from_numpy(y_test)),
+        batch_size=4,
+        num_workers=0,
+    )
 
     model = ClassificationModel(input_size=N_FEATURES, num_classes=NUM_CLASSES)
     config = PredictorConfig(
@@ -60,7 +63,13 @@ def test_train_classifier_restores_best_weights(tmp_path, monkeypatch):
 
 def test_evaluate_classifier_returns_integer_classes():
     rng = np.random.default_rng(42)
-    test_loader = _make_cls_loader(N_SAMPLES, N_FEATURES, NUM_CLASSES, rng)
+    X = rng.random((N_SAMPLES, N_FEATURES)).astype(np.float32)
+    y = rng.integers(0, NUM_CLASSES, size=N_SAMPLES).astype(np.int64)
+    test_loader = DataLoader(
+        TensorDataset(torch.from_numpy(X), torch.from_numpy(y)),
+        batch_size=4,
+        num_workers=0,
+    )
 
     model = ClassificationModel(input_size=N_FEATURES, num_classes=NUM_CLASSES)
     model.eval()
