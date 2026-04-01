@@ -58,6 +58,23 @@ class PerformanceDataPipeline:
         self.input_columns: list[str] = []  # Non-target feature names, set by _create_samples
         self.feature_names: list[str] = []  # All feature names as seen by the scaler
 
+    def load_service_dataframes(
+        self,
+        csv_path: str,
+        test_csv_path: str | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """Returns {service_name: DataFrame} with ratio features added, not normalized or split.
+
+        If test_csv_path is provided, the two datasets are concatenated before splitting by service.
+        Intended for use with cross-validation, where fold splitting happens externally.
+        """
+        df = self._load_data(csv_path)
+        if test_csv_path is not None:
+            extra = self._load_data(test_csv_path)
+            df = pd.concat([df, extra], ignore_index=True)
+        service_dfs = self._split_by_service(df)
+        return {name: self._add_ratio_features(sdf) for name, sdf in service_dfs.items()}
+
     def _load_and_split(
         self,
         csv_path: str,

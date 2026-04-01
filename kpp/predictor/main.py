@@ -15,11 +15,6 @@ from kpp.predictor.pipeline import PerformanceDataPipeline
 logger = logging.getLogger("predictor")
 
 
-def _shorten_column_name(col: str) -> str:
-    """Strips unit suffixes and replaces spaces with underscores for table headers."""
-    return _shorten_column_name(col)
-
-
 def compute_metrics(
     real_predictions: np.ndarray,
     real_targets: np.ndarray,
@@ -135,11 +130,10 @@ def generate_metrics_table(
     # Build header: one MAE + MAPE pair per target column
     col_headers = []
     for col in target_columns:
-        short = _shorten_column_name(col)
-        col_headers.append(f"{short}_MAE")
-        col_headers.append(f"{short}_MAPE%")
+        col_headers.append(f"{col} MAE")
+        col_headers.append(f"{col} MAPE")
 
-    col_width = 12
+    col_width = max(12, max(len(h) for h in col_headers))
     header_row = f"| {'Microservice':<{service_col_width}} |"
     for h in col_headers:
         header_row += f" {h:>{col_width}} |"
@@ -150,33 +144,36 @@ def generate_metrics_table(
 
     lines = ["\n### Prediction Metrics by Microservice\n", header_row, sep_row]
 
-    # Accumulators for mean computation
-    col_sums: dict[str, float] = {h: 0.0 for h in col_headers}
-    col_counts: dict[str, int] = {h: 0 for h in col_headers}
+    # Accumulators for mean computation using lists matching the column positions
+    col_sums = [0.0] * len(col_headers)
+    col_counts = [0] * len(col_headers)
 
     for service in services:
         row = f"| {service:<{service_col_width}} |"
-        for col in target_columns:
+        for i, col in enumerate(target_columns):
             col_metrics = all_metrics[service].get(col, {})
             mae = col_metrics.get("MAE", float("nan"))
             mape = col_metrics.get("MAPE", float("nan"))
             row += f" {mae:>{col_width}.6f} |"
             row += f" {mape:>{col_width}.2f} |"
 
-            short = _shorten_column_name(col)
+            # Calculate the corresponding indices in the col_sums list
+            mae_idx = i * 2
+            mape_idx = i * 2 + 1
+
             if not np.isnan(mae):
-                col_sums[f"{short}_MAE"] += mae
-                col_counts[f"{short}_MAE"] += 1
+                col_sums[mae_idx] += mae
+                col_counts[mae_idx] += 1
             if not np.isnan(mape):
-                col_sums[f"{short}_MAPE%"] += mape
-                col_counts[f"{short}_MAPE%"] += 1
+                col_sums[mape_idx] += mape
+                col_counts[mape_idx] += 1
         lines.append(row)
 
     # Mean row
     mean_row = f"| {'**Mean**':<{service_col_width}} |"
-    for h in col_headers:
-        if col_counts[h] > 0:
-            mean_val = col_sums[h] / col_counts[h]
+    for i, h in enumerate(col_headers):
+        if col_counts[i] > 0:
+            mean_val = col_sums[i] / col_counts[i]
             mean_row += (
                 f" {mean_val:>{col_width}.6f} |" if "MAE" in h else f" {mean_val:>{col_width}.2f} |"
             )

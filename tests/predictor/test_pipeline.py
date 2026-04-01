@@ -518,6 +518,44 @@ def test_run_stratified_regression_returns_regression_datasets(tmp_path):
     assert "svc" in pipeline.scalers
 
 
+def test_load_service_dataframes_returns_dict_keyed_by_service():
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.load_service_dataframes(str(FIXTURE_CSV))
+    assert set(result.keys()) == {"adservice", "frontend"}
+
+
+def test_load_service_dataframes_data_is_not_normalized():
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.load_service_dataframes(str(FIXTURE_CSV))
+    for df in result.values():
+        # Raw user counts in fixture are 4, 6, 8 — far from zero-mean normalized values
+        assert df["User Count"].max() > 1.0
+
+
+def test_load_service_dataframes_includes_ratio_features():
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.load_service_dataframes(str(FIXTURE_CSV))
+    for df in result.values():
+        assert PerformanceDataPipeline.LOAD_PER_REPLICA_COL in df.columns
+        assert PerformanceDataPipeline.CPU_PER_USER_COL in df.columns
+
+
+def test_load_service_dataframes_concatenates_two_csvs(tmp_path):
+    df = pd.read_csv(FIXTURE_CSV)
+    csv1 = tmp_path / "a.csv"
+    csv2 = tmp_path / "b.csv"
+    df.to_csv(csv1, index=False)
+    extra = df.copy()
+    extra["Timestamp"] = extra["Timestamp"] + 10_000_000  # distinct timestamps
+    extra.to_csv(csv2, index=False)
+
+    pipeline = PerformanceDataPipeline(target_columns=TARGET_COLUMNS)
+    result = pipeline.load_service_dataframes(str(csv1), str(csv2))
+    for df_svc in result.values():
+        # Each CSV has 11 rows per user count per service; combined is 22 per user count
+        assert len(df_svc) > 11
+
+
 def test_evaluate_inverts_log_transform_for_response_time():
     # Set up a scaler fitted on log10-space values for two features: User Count + Response Time.
     feature_names = ["User Count", "Response Time (s)"]
