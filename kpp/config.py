@@ -22,6 +22,8 @@ class CollectorConfig:
     query_interval: int
     warmup_period: int
     experiments: list[ExperimentConfig]
+    prometheus_url: str = "http://localhost:9090"
+    cooldown_seconds: int = 180
 
     @classmethod
     def from_yaml(cls, path: Path = _EXPERIMENTS_CONFIG_PATH) -> "CollectorConfig":
@@ -35,6 +37,8 @@ class CollectorConfig:
             query_interval=query_interval,
             warmup_period=query_interval * 2,
             experiments=experiments,
+            prometheus_url=raw.get("prometheus_url", "http://localhost:9090"),
+            cooldown_seconds=int(raw.get("cooldown_seconds", 180)),
         )
 
 
@@ -71,19 +75,45 @@ class SchedulerConfig:
 
 
 @dataclass(frozen=True)
+class ClassificationConfig:
+    good_upper: float = 40.0
+    danger_upper: float = 60.0
+    label_smoothing: float = 0.1
+
+    @property
+    def thresholds(self) -> list[float]:
+        return [self.good_upper, self.danger_upper]
+
+    @property
+    def class_names(self) -> list[str]:
+        return ["good", "danger", "bottleneck"]
+
+    @property
+    def num_classes(self) -> int:
+        return 3
+
+
+@dataclass(frozen=True)
 class PredictorConfig:
     pipeline: PipelineConfig
     model: ModelConfig
     training: TrainingConfig
     scheduler: SchedulerConfig
+    classification: ClassificationConfig | None = None
 
     @classmethod
     def from_yaml(cls, path: Path = _PREDICTOR_CONFIG_PATH) -> "PredictorConfig":
         with open(path) as f:
             raw = yaml.safe_load(f)
+        classification = (
+            ClassificationConfig(**raw["classification"])
+            if "classification" in raw
+            else None
+        )
         return cls(
             pipeline=PipelineConfig(**raw["pipeline"]),
             model=ModelConfig(**raw["model"]),
             training=TrainingConfig(**raw["training"]),
             scheduler=SchedulerConfig(**raw["scheduler"]),
+            classification=classification,
         )

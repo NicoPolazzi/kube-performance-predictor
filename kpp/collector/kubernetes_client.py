@@ -9,6 +9,7 @@ APP_LABEL = "app"
 LOADGENERATOR_NAME = "loadgenerator"
 PATCH_TIMEOUT_SECONDS = 180
 PATCH_POLL_INTERVAL_SECONDS = 5
+MAX_CONSECUTIVE_API_ERRORS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +25,11 @@ class KubernetesClient:
     """
 
     api_instance: client.CoreV1Api
-    apps_api_istance: client.AppsV1Api
+    apps_api_instance: client.AppsV1Api
 
     def __init__(self, core_api: client.CoreV1Api, apps_api: client.AppsV1Api) -> None:
         self.api_instance = core_api
-        self.apps_api_istance = apps_api
+        self.apps_api_instance = apps_api
 
     def get_services_names(self) -> set[str]:
         """
@@ -65,7 +66,7 @@ class KubernetesClient:
 
         logger.info(f"Changing the number of concurrent users to {user_count}")
         patched_deployment = self._patch_loadgenerator_deployment(user_count=user_count)
-        self._wait_for_patch_completion(patched_deployment, self.apps_api_istance)
+        self._wait_for_patch_completion(patched_deployment, self.apps_api_instance)
 
     def _wait_for_patch_completion(
         self, patched_deployment: client.V1Deployment, api: client.AppsV1Api
@@ -75,6 +76,7 @@ class KubernetesClient:
         timeout_seconds = PATCH_TIMEOUT_SECONDS
         start_time = time.time()
 
+        consecutive_errors = 0
         while time.time() - start_time < timeout_seconds:
             try:
                 deployment = cast(
@@ -82,9 +84,16 @@ class KubernetesClient:
                     api.read_namespaced_deployment(name=deployment_name, namespace="default"),
                 )
             except client.ApiException as e:
-                logger.error(f"Error reading deployment status: {e}")
+                consecutive_errors += 1
+                logger.error(f"Error reading deployment status ({consecutive_errors}/{MAX_CONSECUTIVE_API_ERRORS}): {e}")
+                if consecutive_errors >= MAX_CONSECUTIVE_API_ERRORS:
+                    raise RuntimeError(
+                        f"Aborting rollout wait for '{deployment_name}': "
+                        f"{MAX_CONSECUTIVE_API_ERRORS} consecutive API errors. Last error: {e}"
+                    ) from e
                 time.sleep(PATCH_POLL_INTERVAL_SECONDS)
                 continue
+            consecutive_errors = 0
 
             observed_generation = deployment.status.observed_generation or 0
             updated_replicas = deployment.status.updated_replicas or 0
@@ -108,7 +117,7 @@ class KubernetesClient:
     def _patch_loadgenerator_deployment(self, user_count: str) -> client.V1Deployment:
         deployment = cast(
             client.V1Deployment,
-            self.apps_api_istance.read_namespaced_deployment(
+            self.apps_api_instance.read_namespaced_deployment(
                 name=LOADGENERATOR_NAME, namespace=DEFAULT_NAMESPACE
             ),
         )
@@ -122,7 +131,7 @@ class KubernetesClient:
                     )
                     env_var.value = user_count
 
-        patched_deployment = self.apps_api_istance.patch_namespaced_deployment(
+        patched_deployment = self.apps_api_instance.patch_namespaced_deployment(
             name=LOADGENERATOR_NAME, namespace=DEFAULT_NAMESPACE, body=deployment
         )
 
@@ -135,7 +144,7 @@ class KubernetesClient:
         Returns a dict mapping service name to CPU request in cores.
         Values like "500m" are converted to 0.5; values like "1" are returned as 1.0.
         """
-        deployments = self.apps_api_istance.list_namespaced_deployment(namespace=DEFAULT_NAMESPACE)
+        deployments = self.apps_api_instance.list_namespaced_deployment(namespace=DEFAULT_NAMESPACE)
         cpu_requests: dict[str, float] = {}
 
         for deployment in deployments.items:
@@ -162,7 +171,7 @@ class KubernetesClient:
 
         Returns a dict mapping service name to replica count.
         """
-        deployments = self.apps_api_istance.list_namespaced_deployment(namespace=DEFAULT_NAMESPACE)
+        deployments = self.apps_api_instance.list_namespaced_deployment(namespace=DEFAULT_NAMESPACE)
         replicas: dict[str, int] = {}
         for deployment in deployments.items:
             name = deployment.metadata.labels.get(APP_LABEL)
@@ -183,10 +192,10 @@ class KubernetesClient:
         Scales a named service deployment to the specified replica count and waits for rollout.
         """
         body = {"spec": {"replicas": replicas}}
-        patched = self.apps_api_istance.patch_namespaced_deployment(
+        patched = self.apps_api_instance.patch_namespaced_deployment(
             name=service_name, namespace=DEFAULT_NAMESPACE, body=body
         )
-        self._wait_for_patch_completion(cast(client.V1Deployment, patched), self.apps_api_istance)
+        self._wait_for_patch_completion(cast(client.V1Deployment, patched), self.apps_api_instance)
 
     def stop_load_generation(self) -> None:
         """Scales the loadgenerator deployment to 0 replicas, stopping traffic generation."""
@@ -194,7 +203,7 @@ class KubernetesClient:
         body = {"spec": {"replicas": 0}}
 
         try:
-            self.apps_api_istance.patch_namespaced_deployment(
+            self.apps_api_instance.patch_namespaced_deployment(
                 name=LOADGENERATOR_NAME, namespace=DEFAULT_NAMESPACE, body=body
             )
             logger.info("Load generator stopped successfully.")

@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from kpp.config import PredictorConfig
 from kpp.logging_config import setup_logging
+from kpp.predictor.classification import DEFAULT_TARGET_COLUMNS, validate_csv_path
 from kpp.predictor.model import PerformanceModel, evaluate, train_model
 from kpp.predictor.pipeline import PerformanceDataPipeline
 
@@ -129,11 +130,10 @@ def generate_metrics_table(
     # Build header: one MAE + MAPE pair per target column
     col_headers = []
     for col in target_columns:
-        short = col.replace(" (s)", "").replace(" (req/s)", "").replace(" ", "_")
-        col_headers.append(f"{short}_MAE")
-        col_headers.append(f"{short}_MAPE%")
+        col_headers.append(f"{col} MAE")
+        col_headers.append(f"{col} MAPE")
 
-    col_width = 12
+    col_width = max(12, max(len(h) for h in col_headers))
     header_row = f"| {'Microservice':<{service_col_width}} |"
     for h in col_headers:
         header_row += f" {h:>{col_width}} |"
@@ -144,33 +144,36 @@ def generate_metrics_table(
 
     lines = ["\n### Prediction Metrics by Microservice\n", header_row, sep_row]
 
-    # Accumulators for mean computation
-    col_sums: dict[str, float] = {h: 0.0 for h in col_headers}
-    col_counts: dict[str, int] = {h: 0 for h in col_headers}
+    # Accumulators for mean computation using lists matching the column positions
+    col_sums = [0.0] * len(col_headers)
+    col_counts = [0] * len(col_headers)
 
     for service in services:
         row = f"| {service:<{service_col_width}} |"
-        for col in target_columns:
+        for i, col in enumerate(target_columns):
             col_metrics = all_metrics[service].get(col, {})
             mae = col_metrics.get("MAE", float("nan"))
             mape = col_metrics.get("MAPE", float("nan"))
             row += f" {mae:>{col_width}.6f} |"
             row += f" {mape:>{col_width}.2f} |"
 
-            short = col.replace(" (s)", "").replace(" (req/s)", "").replace(" ", "_")
+            # Calculate the corresponding indices in the col_sums list
+            mae_idx = i * 2
+            mape_idx = i * 2 + 1
+
             if not np.isnan(mae):
-                col_sums[f"{short}_MAE"] += mae
-                col_counts[f"{short}_MAE"] += 1
+                col_sums[mae_idx] += mae
+                col_counts[mae_idx] += 1
             if not np.isnan(mape):
-                col_sums[f"{short}_MAPE%"] += mape
-                col_counts[f"{short}_MAPE%"] += 1
+                col_sums[mape_idx] += mape
+                col_counts[mape_idx] += 1
         lines.append(row)
 
     # Mean row
     mean_row = f"| {'**Mean**':<{service_col_width}} |"
-    for h in col_headers:
-        if col_counts[h] > 0:
-            mean_val = col_sums[h] / col_counts[h]
+    for i, h in enumerate(col_headers):
+        if col_counts[i] > 0:
+            mean_val = col_sums[i] / col_counts[i]
             mean_row += (
                 f" {mean_val:>{col_width}.6f} |" if "MAE" in h else f" {mean_val:>{col_width}.2f} |"
             )
@@ -223,26 +226,17 @@ def main() -> None:
     config = PredictorConfig.from_yaml()
 
     csv_path = "datasets/performance_results_normal.csv"
-    if not Path(csv_path).exists():
-        raise FileNotFoundError(
-            f"CSV data file not found: '{csv_path}'. Place your collected data file at this path."
-        )
+    validate_csv_path(csv_path)
 
     test_csv_path = (
         "datasets/performance_results_overload.csv"
         if config.pipeline.split_strategy in ("extrapolation", "merged")
         else None
     )
-    if test_csv_path is not None and not Path(test_csv_path).exists():
-        raise FileNotFoundError(
-            f"Overload CSV data file not found: '{test_csv_path}'. Place your collected data file at this path."
-        )
+    if test_csv_path is not None:
+        validate_csv_path(test_csv_path, description="Overload CSV data file")
 
-    target_cols = [
-        PerformanceDataPipeline.RESPONSE_TIME_COL,
-        PerformanceDataPipeline.THROUGHPUT_COL,
-        PerformanceDataPipeline.CPU_USAGE_COL,
-    ]
+    target_cols = DEFAULT_TARGET_COLUMNS
 
     pipeline = PerformanceDataPipeline(target_cols)
     datasets = pipeline.run(

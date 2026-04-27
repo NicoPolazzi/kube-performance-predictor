@@ -12,9 +12,6 @@ from kpp.collector.sample import PerformanceSample
 from kpp.config import CollectorConfig
 from kpp.logging_config import setup_logging
 
-COOLDOWN_SECONDS = 180
-PROMETHEUS_URL = "http://localhost:9090"
-
 logger = logging.getLogger(__name__)
 
 
@@ -22,7 +19,7 @@ def main():
     setup_logging("collector", log_file="app.log")
     config = CollectorConfig.from_yaml()
     writer = CsvWriter()
-    prom_client = PrometheusClient(PrometheusConnect(url=PROMETHEUS_URL, disable_ssl=True))
+    prom_client = PrometheusClient(PrometheusConnect(url=config.prometheus_url, disable_ssl=True))
     kube_config.load_kube_config()
     kube_client = KubernetesClient(core_api=client.CoreV1Api(), apps_api=client.AppsV1Api())
     service_names = kube_client.get_services_names()
@@ -35,7 +32,7 @@ def main():
         for experiment in config.experiments:
             for service_name, replicas in experiment.replicas.items():
                 kube_client.scale_service_deployment(service_name, replicas)
-            logger.info("Replicas scaled for experiment users=%d", experiment.users)
+            logger.info(f"Replicas scaled for experiment users={experiment.users}")
 
             current_replicas = kube_client.get_replicas()
             kube_client.change_performance_test_load(str(experiment.users))
@@ -50,9 +47,9 @@ def main():
                 replicas=current_replicas,
             )
             logger.info(f"Test for {experiment.users} users ended with success")
-            logger.info(f"waiting for {COOLDOWN_SECONDS} seconds...")
+            logger.info(f"Waiting for {config.cooldown_seconds} seconds...")
             kube_client.stop_load_generation()
-            time.sleep(COOLDOWN_SECONDS)
+            time.sleep(config.cooldown_seconds)
 
     finally:
         kube_client.stop_load_generation()

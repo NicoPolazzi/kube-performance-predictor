@@ -33,16 +33,17 @@ kpp/
 │   ├── csv_writer.py        # Writes timestamped CSV output
 │   └── sample.py            # PerformanceSample frozen dataclass
 ├── predictor/               # ML training and evaluation
-│   ├── main.py              # Orchestrator: training loop, plotting, RMSE table
-│   ├── pipeline.py          # PerformanceDataPipeline: preprocessing and splitting
-│   └── model.py             # PerformanceModel: network definition and training loop
+│   ├── main.py              # Orchestrator: training loop, plotting, metrics table
+│   ├── pipeline.py          # PerformanceDataPipeline: preprocessing, splitting, classification prep
+│   ├── model.py             # PerformanceModel: network definition and training loop
+│   └── classification.py    # Classification experiments: classifier training, metrics, plots
 ├── config.py                # Typed config dataclasses (CollectorConfig, PredictorConfig)
 └── logging_config.py        # Logging setup
 confs/
 ├── experiments.yaml         # Collector settings: load profiles and experiment list
-└── predictor.yaml           # ML hyperparameters: pipeline, model, training, scheduler
-dataset/                     # Pre-collected CSV files
-tests/                       
+└── predictor.yaml           # ML hyperparameters: pipeline, model, training, scheduler, classification
+datasets/                    # Pre-collected CSV files (normal and overload profiles)
+tests/
 ```
 
 ### Package Descriptions
@@ -53,7 +54,9 @@ Orchestrates load experiments against a live Kubernetes cluster. `KubernetesClie
 
 #### `kpp.predictor`
 
-Loads CSVs from `dataset/` and runs them through `PerformanceDataPipeline`, which validates the schema, rounds timestamps to 1-minute intervals, aggregates by (timestamp, service), fills gaps, and splits into train/test sets using either an interpolation or extrapolation strategy. Each service is normalized independently with a `StandardScaler` plus log transform. A `PerformanceModel` is then trained per service using PyTorch (Adam optimizer with `ReduceLROnPlateau`), with best weights saved to `models/`. After training, `evaluate()` inverts the scaling to produce predictions in original units, and `plot()` generates prediction visualizations in `results/{strategy}/`.
+Loads CSVs from `datasets/` and runs them through `PerformanceDataPipeline`, which validates the schema, rounds timestamps to 1-minute intervals, aggregates by (timestamp, service), fills gaps, and splits into train/test sets. Four split strategies are supported: `interpolation` (hold out middle user-count values from the normal dataset), `extrapolation` (train on normal load, test on overload), `merged` (train on both datasets combined, holding out middle user-count values), and `stratified` (combine both datasets with a per-class holdout). Each service is normalized independently with a `StandardScaler` plus log transform. A `PerformanceModel` is then trained per service using PyTorch (Adam optimizer with `ReduceLROnPlateau`), with best weights saved to `models/`. After training, `evaluate()` inverts the scaling to produce predictions in original units, and `plot()` generates prediction visualizations in `results/{strategy}/`.
+
+`classification.py` runs a suite of classification experiments that label CPU usage as `good` (≤ 40%), `danger` (40–60%), or `bottleneck` (> 60%). It trains a `ClassificationModel` across three split strategies (extrapolation, stratified, interpolation) and also evaluates a regression-as-classifier approach where the regression model's CPU predictions are thresholded into classes. Results — confusion matrices and per-class metrics tables — are saved to `results/classification/{experiment}/`.
 
 #### `kpp.config`
 
@@ -90,6 +93,9 @@ Controls the predictor:
 | `scheduler` | `factor` | LR reduction factor on plateau (default: 0.5) |
 | `scheduler` | `patience` | Epochs to wait before reducing LR (default: 20) |
 | `scheduler` | `min_lr` | Minimum learning rate floor (default: 0.000001) |
+| `classification` | `good_upper` | CPU% upper threshold for "good" class (default: 40.0) |
+| `classification` | `danger_upper` | CPU% upper threshold for "danger" class (default: 60.0) |
+| `classification` | `label_smoothing` | Label smoothing for classifier loss (default: 0.1) |
 
 ## Setup
 
@@ -167,6 +173,16 @@ poetry run python kpp/predictor/main.py
 ```
 
 Results (predictions, loss plots, metrics table) are saved to `results/{strategy}/` (e.g. `results/merged/`).
+
+### Run classification experiments
+
+Train classification models and compare against regression-as-classifier baselines:
+
+```shell
+poetry run python kpp/predictor/classification.py
+```
+
+Results (confusion matrices, per-class metrics tables) are saved to `results/classification/{experiment}/`.
 
 ## Development
 

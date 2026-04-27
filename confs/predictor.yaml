@@ -1,20 +1,26 @@
 pipeline:
   train_ratio: 0.9
-  split_strategy: extrapolation
+  split_strategy: merged
 
 model:
-  hidden_size: 128
-  hidden_size_2: 64
-  head_hidden_size: 64
+  hidden_size: 64
+  hidden_size_2: 32
+  head_hidden_size: 32
   dropout: 0.3
 
 training:
-  epochs: 150
+  epochs: 100
   learning_rate: 0.001
-  batch_size: 64
+  batch_size: 32
   weight_decay: 0.01
 
 scheduler:
   factor: 0.5
   patience: 20
   min_lr: 0.000001
+
+classification:
+  good_upper: 40.0
+  danger_upper: 60.0
+  label_smoothing: 0.1
+
