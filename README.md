@@ -2,6 +2,54 @@
 
 A Master's thesis project for predicting Kubernetes microservice performance using machine learning. It collects Prometheus metrics from a Minikube cluster running Google's microservices-demo with Istio, then trains per-service neural network models on the collected time-series data.
 
+## Headline Results
+
+The thesis answers a single question: how badly does an ML performance model fail when production load enters a regime not seen during training?
+
+| Metric | Interpolation (in-distribution) | Extrapolation (overload, unseen) | Merged (overload seen during training) |
+|---|---|---|---|
+| Response time MAPE | **6.33%** | **88.29%** | 19.14% |
+| Throughput MAPE | 6.16% | 45.04% | 9.65% |
+| CPU usage MAPE | 17.52% | 113.28% | 53.01% |
+
+Response time prediction error increases 14x when the system enters saturation regimes not represented in training data — even though the same model architecture recovers most of its accuracy when overload examples are included in training. The failure stems from distribution shift, not from insufficient model capacity.
+
+The same pattern appears in classification (CPU utilization labeled `good` ≤ 40%, `danger` 40–60%, `bottleneck` ≥ 60%):
+
+| Scenario | Mean F1 (weighted) |
+|---|---|
+| Interpolation | **0.997** |
+| Extrapolation | 0.533 |
+| Merged | 0.982 |
+
+Under extrapolation, the classifier scores F1 = 0.000 on `frontend` and `checkoutservice` — the two most saturated services in the system. The model labels saturated bottlenecks as healthy.
+
+**Why this matters in practice:** these are exactly the regimes where a model's predictions are most needed (capacity planning, autoscaling decisions during traffic spikes), and exactly the regimes where pure data-driven models are least reliable. The thesis quantifies this gap and motivates hybrid approaches that embed queueing-theoretic constraints into the learning architecture.
+
+## Architecture at a Glance
+
+```mermaid
+flowchart LR
+    subgraph cluster["Minikube cluster"]
+        loadgen["Locust"] -->|HTTP| frontend["Google Online Boutique"]
+        frontend -.->|Istio sidecars| sidecars["Envoy sidecars"]
+        sidecars -->|metrics| prom["Prometheus"]
+    end
+
+    collector["Collector"] -->|scale + patch| cluster
+    collector -->|PromQL| prom
+    collector -->|writes| csv["CSV datasets"]
+
+    csv --> predictor["Predictor"]
+    predictor --> |produces| results["Results, plots"]
+
+    style csv fill:#f5f5f5
+    style results fill:#f5f5f5
+```
+
+The collector ramps load against a live Online Boutique deployment and scrapes per-service metrics through Istio sidecars. The predictor trains one multi-task neural network per service, with a shared trunk learning common load-performance representations and three heads specializing in response time, throughput, and CPU usage. Four split strategies (interpolation, extrapolation, merged, stratified) test the model under different distribution-shift conditions.
+
+
 ## Requirements
 
 Ensure that you have the following tools installed:
